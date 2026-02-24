@@ -1,21 +1,24 @@
 mod addressing;
 mod api;
-mod avax;
-mod arb;
 mod aptos;
-mod bsc;
+mod arb;
+mod avax;
 mod base;
+mod bsc;
 mod btc;
 #[allow(dead_code)]
 mod config;
 mod error;
 mod eth;
+mod evm_rpc;
 mod icp;
 mod near;
 mod okb;
 mod op;
 mod polygon;
+mod sepolia;
 mod sol;
+mod solana_testnet;
 mod state;
 mod sui;
 mod ton;
@@ -29,8 +32,9 @@ use candid::Principal;
 use error::WalletResult;
 #[allow(unused_imports)]
 use types::{
-    AddressRequest, AddressResponse, BalanceRequest, BalanceResponse, NetworkModuleStatus,
-    ServiceInfoResponse, TransferRequest, TransferResponse,
+    AddressRequest, AddressResponse, BalanceRequest, BalanceResponse, ConfiguredExplorerResponse,
+    ConfiguredTokenResponse, NetworkModuleStatus, ServiceInfoResponse, TransferRequest,
+    TransferResponse, WalletNetworkInfoResponse,
 };
 
 ic_cdk::export_candid!();

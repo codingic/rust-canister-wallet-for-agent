@@ -9,14 +9,14 @@ use k256::elliptic_curve::sec1::ToEncodedPoint;
 use k256::PublicKey;
 use sha3::{Digest, Keccak256};
 
-const NETWORK_NAME: &str = "ethereum";
+const NETWORK_NAME: &str = "sepolia";
 
 pub async fn request_address(req: AddressRequest) -> WalletResult<AddressResponse> {
     let resolved = addressing::resolve_address_request(NETWORK_NAME, req)?;
     let (public_key, key_name) = addressing::fetch_ecdsa_secp256k1_public_key().await?;
 
     let secp_pubkey = PublicKey::from_sec1_bytes(&public_key)
-        .map_err(|err| WalletError::Internal(format!("invalid eth public key: {err}")))?;
+        .map_err(|err| WalletError::Internal(format!("invalid sepolia public key: {err}")))?;
     let uncompressed = secp_pubkey.to_encoded_point(false);
     let uncompressed_bytes = uncompressed.as_bytes();
     if uncompressed_bytes.len() != 65 || uncompressed_bytes[0] != 0x04 {
@@ -49,14 +49,14 @@ pub fn get_balance(req: BalanceRequest) -> WalletResult<BalanceResponse> {
         decimals: Some(18),
         block_ref: None,
         pending: true,
-        message: Some("ETH balance query not implemented yet".to_string()),
+        message: Some("Sepolia balance query not implemented yet".to_string()),
     })
 }
 
 pub async fn get_balance_eth(req: BalanceRequest) -> WalletResult<BalanceResponse> {
     if req.token.is_some() {
         return Err(WalletError::invalid_input(
-            "eth_get_balance_eth does not accept token parameter",
+            "sepolia_get_balance_eth does not accept token parameter",
         ));
     }
     evm_rpc::get_native_eth_balance(NETWORK_NAME, req).await

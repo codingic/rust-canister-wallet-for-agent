@@ -12,13 +12,12 @@ use k256::schnorr::VerifyingKey as SchnorrVerifyingKey;
 use k256::{ProjectivePoint, PublicKey, Scalar};
 use sha2::{Digest, Sha256};
 
-const NETWORK_NAME: &str = "btc";
+const NETWORK_NAME: &str = "bitcoin";
 
 pub async fn request_address(req: AddressRequest) -> WalletResult<AddressResponse> {
     let resolved = addressing::resolve_address_request(NETWORK_NAME, req)?;
     let (public_key, key_name) = addressing::fetch_schnorr_public_key(
         ic_cdk::management_canister::SchnorrAlgorithm::Bip340secp256k1,
-        resolved.derivation_path,
     )
     .await?;
 

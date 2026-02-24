@@ -1,7 +1,7 @@
 use crate::error::{WalletError, WalletResult};
 use crate::types::{BalanceRequest, BalanceResponse, TransferRequest, TransferResponse};
 
-const CHAIN_NAME: &str = "aptos";
+const CHAIN_NAME: &str = "aptos-mainnet";
 
 pub fn get_balance(req: BalanceRequest) -> WalletResult<BalanceResponse> {
     validate_account(&req.account)?;

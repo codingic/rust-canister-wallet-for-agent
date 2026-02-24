@@ -1,7 +1,7 @@
 use crate::error::{WalletError, WalletResult};
 use crate::types::{BalanceRequest, BalanceResponse, TransferRequest, TransferResponse};
 
-const NETWORK_NAME: &str = "arb";
+const NETWORK_NAME: &str = "arbitrum";
 
 pub fn get_balance(req: BalanceRequest) -> WalletResult<BalanceResponse> {
     validate_account(&req.account)?;

@@ -1,11 +1,23 @@
 import { useEffect, useState } from 'react';
 
+const TOKEN_VLIST_HEIGHT = 420;
+const TOKEN_VLIST_ROW_HEIGHT = 124;
+const TOKEN_VLIST_OVERSCAN = 3;
+
 const NETWORK_CONFIG = {
-  eth: {
+  ethereum: {
     title: 'Ethereum',
     nativeSymbol: 'ETH',
     nativeLabel: 'ETH 地址',
     tokenLabel: 'Token 合约地址',
+    tokenSymbol: 'USDC',
+    showToken: true
+  },
+  sepolia: {
+    title: 'Sepolia',
+    nativeSymbol: 'ETH',
+    nativeLabel: 'Sepolia 地址',
+    tokenLabel: 'ERC20 合约地址',
     tokenSymbol: 'USDC',
     showToken: true
   },
@@ -25,7 +37,7 @@ const NETWORK_CONFIG = {
     tokenSymbol: 'USDT',
     showToken: true
   },
-  arb: {
+  arbitrum: {
     title: 'Arbitrum',
     nativeSymbol: 'ETH',
     nativeLabel: 'Arbitrum 地址',
@@ -33,7 +45,7 @@ const NETWORK_CONFIG = {
     tokenSymbol: 'USDC',
     showToken: true
   },
-  op: {
+  optimism: {
     title: 'Optimism',
     nativeSymbol: 'ETH',
     nativeLabel: 'Optimism 地址',
@@ -41,7 +53,7 @@ const NETWORK_CONFIG = {
     tokenSymbol: 'USDC',
     showToken: true
   },
-  avax: {
+  avalanche: {
     title: 'Avalanche',
     nativeSymbol: 'AVAX',
     nativeLabel: 'Avalanche 地址',
@@ -49,10 +61,10 @@ const NETWORK_CONFIG = {
     tokenSymbol: 'USDC.e',
     showToken: true
   },
-  okb: {
-    title: 'OKB Chain',
+  okx: {
+    title: 'OKX Chain',
     nativeSymbol: 'OKB',
-    nativeLabel: 'OKB 链地址',
+    nativeLabel: 'OKX 链地址',
     tokenLabel: 'ERC20 合约地址',
     tokenSymbol: 'USDT',
     showToken: true
@@ -65,7 +77,7 @@ const NETWORK_CONFIG = {
     tokenSymbol: 'USDC',
     showToken: true
   },
-  icp: {
+  'internet-computer': {
     title: 'Internet Computer',
     nativeSymbol: 'ICP',
     nativeLabel: '账户地址',
@@ -73,7 +85,7 @@ const NETWORK_CONFIG = {
     tokenSymbol: 'ICRC',
     showToken: true
   },
-  btc: {
+  bitcoin: {
     title: 'Bitcoin',
     nativeSymbol: 'BTC',
     nativeLabel: 'BTC 地址',
@@ -81,7 +93,7 @@ const NETWORK_CONFIG = {
     tokenSymbol: '',
     showToken: false
   },
-  sol: {
+  solana: {
     title: 'Solana',
     nativeSymbol: 'SOL',
     nativeLabel: 'Solana 地址',
@@ -89,7 +101,15 @@ const NETWORK_CONFIG = {
     tokenSymbol: 'USDC',
     showToken: true
   },
-  trx: {
+  'solana-testnet': {
+    title: 'Solana Testnet',
+    nativeSymbol: 'SOL',
+    nativeLabel: 'Solana Testnet 地址',
+    tokenLabel: 'SPL Token Mint',
+    tokenSymbol: 'USDC',
+    showToken: true
+  },
+  tron: {
     title: 'TRON',
     nativeSymbol: 'TRX',
     nativeLabel: 'TRX 地址',
@@ -97,7 +117,7 @@ const NETWORK_CONFIG = {
     tokenSymbol: 'USDT',
     showToken: true
   },
-  ton: {
+  'ton-mainnet': {
     title: 'TON',
     nativeSymbol: 'TON',
     nativeLabel: 'TON 地址',
@@ -105,7 +125,7 @@ const NETWORK_CONFIG = {
     tokenSymbol: 'USDT',
     showToken: true
   },
-  near: {
+  'near-mainnet': {
     title: 'NEAR',
     nativeSymbol: 'NEAR',
     nativeLabel: 'NEAR 账户',
@@ -113,7 +133,7 @@ const NETWORK_CONFIG = {
     tokenSymbol: 'USDT',
     showToken: true
   },
-  aptos: {
+  'aptos-mainnet': {
     title: 'Aptos',
     nativeSymbol: 'APT',
     nativeLabel: 'Aptos 地址',
@@ -121,7 +141,7 @@ const NETWORK_CONFIG = {
     tokenSymbol: 'APT',
     showToken: true
   },
-  sui: {
+  'sui-mainnet': {
     title: 'Sui',
     nativeSymbol: 'SUI',
     nativeLabel: 'Sui 地址',
@@ -131,7 +151,36 @@ const NETWORK_CONFIG = {
   }
 };
 
-const DEFAULT_NETWORK_ORDER = ['eth', 'base', 'bsc', 'arb', 'op', 'avax', 'okb', 'polygon', 'icp', 'btc', 'sol', 'trx', 'ton', 'near', 'aptos', 'sui'];
+const DEFAULT_NETWORK_ORDER = [
+  'ethereum',
+  'sepolia',
+  'base',
+  'bsc',
+  'arbitrum',
+  'optimism',
+  'avalanche',
+  'okx',
+  'polygon',
+  'internet-computer',
+  'bitcoin',
+  'solana',
+  'solana-testnet',
+  'tron',
+  'ton-mainnet',
+  'near-mainnet',
+  'aptos-mainnet',
+  'sui-mainnet'
+];
+
+function normalizeNetworkId(networkId) {
+  const n = String(networkId || '')
+    .trim()
+    .toLowerCase()
+    .replaceAll('_', '-');
+  if (!n) return '';
+  if (n === 'internetcomputer') return 'internet-computer';
+  return n;
+}
 
 function fallbackNetworkConfig(networkId) {
   const upper = String(networkId || 'unknown').toUpperCase();
@@ -167,13 +216,52 @@ function formatWalletError(err) {
 
 function parseBalanceResponse(resp) {
   return {
-    network: resp?.network || '',
+    network: normalizeNetworkId(resp?.network || ''),
     account: resp?.account || '',
     token: readOpt(resp?.token) || '',
     amount: readOpt(resp?.amount),
     decimals: readOpt(resp?.decimals),
     pending: Boolean(resp?.pending),
     blockRef: readOpt(resp?.block_ref),
+    message: readOpt(resp?.message) || ''
+  };
+}
+
+function parseConfiguredToken(resp) {
+  return {
+    network: normalizeNetworkId(resp?.network || ''),
+    symbol: resp?.symbol || '',
+    name: resp?.name || '',
+    tokenAddress: resp?.token_address || '',
+    decimals: Number(resp?.decimals ?? 0)
+  };
+}
+
+function parseConfiguredExplorer(resp) {
+  return {
+    network: normalizeNetworkId(resp?.network || ''),
+    addressUrlTemplate: resp?.address_url_template || '',
+    tokenUrlTemplate: readOpt(resp?.token_url_template) || ''
+  };
+}
+
+function parseTransferResponse(resp) {
+  return {
+    network: normalizeNetworkId(resp?.network || ''),
+    accepted: Boolean(resp?.accepted),
+    txId: readOpt(resp?.tx_id) || '',
+    message: resp?.message || ''
+  };
+}
+
+function parseAddressResponse(resp) {
+  return {
+    network: normalizeNetworkId(resp?.network || ''),
+    address: resp?.address || '',
+    publicKeyHex: resp?.public_key_hex || '',
+    keyName: resp?.key_name || '',
+    index: Number(resp?.index ?? 0),
+    accountTag: readOpt(resp?.account_tag) || '',
     message: readOpt(resp?.message) || ''
   };
 }
@@ -197,12 +285,20 @@ function parseServiceInfo(info) {
   };
 }
 
+function parseWalletNetworkInfo(row) {
+  const id = normalizeNetworkId(typeof row?.id === 'string' ? row.id : '');
+  return {
+    id
+  };
+}
+
 async function loadBackendSnapshot() {
   try {
     const actor = await loadBackendActor();
     if (!actor) {
       return {
         networks: null,
+        networkNames: null,
         serviceInfo: null,
         canisterId: null,
         source: 'missing-actor'
@@ -210,25 +306,38 @@ async function loadBackendSnapshot() {
     }
     const mod = await import('declarations/backend');
 
-    const [networkRows, serviceInfoRaw] = await Promise.all([
+    const [networkRows, walletNetworkRows, serviceInfoRaw] = await Promise.all([
       actor.supported_networks ? actor.supported_networks().catch(() => null) : Promise.resolve(null),
+      actor.wallet_networks ? actor.wallet_networks().catch(() => null) : Promise.resolve(null),
       actor.service_info ? actor.service_info().catch(() => null) : Promise.resolve(null)
     ]);
 
+    const parsedWalletRows =
+      walletNetworkRows
+        ?.map(parseWalletNetworkInfo)
+        .filter((row) => typeof row.id === 'string' && row.id.length > 0) ??
+      null;
+
     const parsedRows =
       networkRows?.map((row) => ({
-        network: typeof row?.network === 'string' ? row.network : '',
+        network: normalizeNetworkId(typeof row?.network === 'string' ? row.network : ''),
         balance_ready: Boolean(row?.balance_ready),
         transfer_ready: Boolean(row?.transfer_ready),
         note: readOpt(row?.note) || ''
       })) ?? null;
 
-    const networks =
-      parsedRows?.map((row) => row.network).filter((v) => typeof v === 'string' && v.trim().length > 0) ??
+    const supportedNetworks =
+      parsedRows
+        ?.map((row) => row.network)
+        .filter((v) => typeof v === 'string' && v.trim().length > 0) ??
       null;
+
+    const walletNetworks = parsedWalletRows?.map((row) => row.id) ?? null;
+    const networks = walletNetworks?.length ? walletNetworks : supportedNetworks;
 
     return {
       networks: networks && networks.length ? [...new Set(networks)] : null,
+      networkNames: null,
       serviceInfo: parseServiceInfo(serviceInfoRaw),
       canisterId: typeof mod?.canisterId === 'string' ? mod.canisterId : null,
       source: 'backend'
@@ -236,6 +345,7 @@ async function loadBackendSnapshot() {
   } catch {
     return {
       networks: null,
+      networkNames: null,
       serviceInfo: null,
       canisterId: null,
       source: 'fallback'
@@ -243,25 +353,156 @@ async function loadBackendSnapshot() {
   }
 }
 
+async function queryConfiguredTokens(actor, network) {
+  const method = actor?.configured_tokens;
+  if (typeof method !== 'function') return [];
+  try {
+    const rows = await method(network);
+    return Array.isArray(rows) ? rows.map(parseConfiguredToken) : [];
+  } catch {
+    return [];
+  }
+}
+
+async function queryConfiguredExplorer(actor, network) {
+  const method = actor?.configured_explorer;
+  if (typeof method !== 'function') return null;
+  try {
+    const opt = await method(network);
+    const row = readOpt(opt);
+    return row ? parseConfiguredExplorer(row) : null;
+  } catch {
+    return null;
+  }
+}
+
+function getTransferMethodName(network, assetKind) {
+  const n = normalizeNetworkId(network);
+  const isToken = assetKind === 'token';
+  if (n === 'ethereum') return isToken ? 'eth_transfer_erc20' : 'eth_transfer_eth';
+  if (n === 'sepolia') return isToken ? 'sepolia_transfer_erc20' : 'sepolia_transfer_eth';
+  if (n === 'base') return isToken ? 'base_transfer_erc20' : 'base_transfer_eth';
+  if (n === 'bsc') return isToken ? 'bsc_transfer_bep20' : 'bsc_transfer_bnb';
+  if (n === 'arbitrum') return isToken ? 'arb_transfer_erc20' : 'arb_transfer_eth';
+  if (n === 'optimism') return isToken ? 'op_transfer_erc20' : 'op_transfer_eth';
+  if (n === 'avalanche') return isToken ? 'avax_transfer_erc20' : 'avax_transfer_avax';
+  if (n === 'okx') return isToken ? 'okb_transfer_erc20' : 'okb_transfer_okb';
+  if (n === 'polygon') return isToken ? 'polygon_transfer_erc20' : 'polygon_transfer_pol';
+  if (n === 'internet-computer') return isToken ? 'icp_transfer_icrc' : 'icp_transfer_icp';
+  if (n === 'bitcoin') return 'btc_transfer_btc';
+  if (n === 'solana') return isToken ? 'sol_transfer_spl' : 'sol_transfer_sol';
+  if (n === 'solana-testnet')
+    return isToken ? 'solana_testnet_transfer_spl' : 'solana_testnet_transfer_sol';
+  if (n === 'tron') return isToken ? 'trx_transfer_trc20' : 'trx_transfer_trx';
+  if (n === 'ton-mainnet') return isToken ? 'ton_transfer_jetton' : 'ton_transfer_ton';
+  if (n === 'near-mainnet') return isToken ? 'near_transfer_nep141' : 'near_transfer_near';
+  if (n === 'aptos-mainnet') return isToken ? 'aptos_transfer_token' : 'aptos_transfer_apt';
+  if (n === 'sui-mainnet') return isToken ? 'sui_transfer_token' : 'sui_transfer_sui';
+  return `${n}_transfer`;
+}
+
+async function queryTransfer(actor, network, asset, fromAddress, toAddress, amount) {
+  const methodName = getTransferMethodName(network, asset?.kind || 'token');
+  const method = actor?.[methodName];
+  if (typeof method !== 'function') {
+    return { ok: false, error: `后端未暴露接口: ${methodName}` };
+  }
+
+  const tokenAddress = asset?.kind === 'token' ? String(asset?.tokenAddress || '').trim() : '';
+  let result;
+  try {
+    result = await method({
+      from: fromAddress ? [fromAddress] : [],
+      to: toAddress,
+      amount,
+      token: tokenAddress ? [tokenAddress] : [],
+      memo: [],
+      nonce: [],
+      metadata: []
+    });
+  } catch (err) {
+    return {
+      ok: false,
+      error: err instanceof Error ? err.message : '调用后端发送接口失败'
+    };
+  }
+
+  if (result?.Ok) {
+    return { ok: true, data: parseTransferResponse(result.Ok) };
+  }
+  if (result?.Err) {
+    return { ok: false, error: formatWalletError(result.Err) };
+  }
+  return { ok: false, error: '后端发送接口返回格式不识别' };
+}
+
+function getAddressMethodName(network) {
+  const n = normalizeNetworkId(network);
+  if (n === 'ethereum') return 'eth_request_address';
+  if (n === 'sepolia') return 'sepolia_request_address';
+  if (n === 'base') return 'eth_request_address';
+  if (n === 'bsc') return 'eth_request_address';
+  if (n === 'arbitrum') return 'eth_request_address';
+  if (n === 'optimism') return 'eth_request_address';
+  if (n === 'avalanche') return 'eth_request_address';
+  if (n === 'okx') return 'eth_request_address';
+  if (n === 'polygon') return 'eth_request_address';
+  if (n === 'bitcoin') return 'btc_request_address';
+  if (n === 'solana') return 'sol_request_address';
+  if (n === 'solana-testnet') return 'solana_testnet_request_address';
+  return null;
+}
+
+async function queryRequestAddress(actor, network) {
+  const methodName = getAddressMethodName(network);
+  if (!methodName) return { ok: false, error: `后端未暴露地址申请接口: ${network}` };
+  const method = actor?.[methodName];
+  if (typeof method !== 'function') {
+    return { ok: false, error: `后端未暴露接口: ${methodName}` };
+  }
+
+  let result;
+  try {
+    result = await method({ index: [], account_tag: [] });
+  } catch (err) {
+    return {
+      ok: false,
+      error: err instanceof Error ? err.message : '调用地址申请接口失败'
+    };
+  }
+
+  if (result?.Ok) {
+    return { ok: true, data: parseAddressResponse(result.Ok) };
+  }
+  if (result?.Err) {
+    return { ok: false, error: formatWalletError(result.Err) };
+  }
+  return { ok: false, error: '后端地址申请返回格式不识别' };
+}
+
 function getBalanceMethodName(network, token = '') {
+  const n = normalizeNetworkId(network);
   const hasToken = typeof token === 'string' && token.trim().length > 0;
-  if (network === 'eth') return hasToken ? 'eth_get_balance_erc20' : 'eth_get_balance_eth';
-  if (network === 'base') return hasToken ? 'base_get_balance_erc20' : 'base_get_balance_eth';
-  if (network === 'bsc') return hasToken ? 'bsc_get_balance_bep20' : 'bsc_get_balance_bnb';
-  if (network === 'arb') return hasToken ? 'arb_get_balance_erc20' : 'arb_get_balance_eth';
-  if (network === 'op') return hasToken ? 'op_get_balance_erc20' : 'op_get_balance_eth';
-  if (network === 'avax') return hasToken ? 'avax_get_balance_erc20' : 'avax_get_balance_avax';
-  if (network === 'okb') return hasToken ? 'okb_get_balance_erc20' : 'okb_get_balance_okb';
-  if (network === 'polygon') return hasToken ? 'polygon_get_balance_erc20' : 'polygon_get_balance_pol';
-  if (network === 'btc') return 'btc_get_balance_btc';
-  if (network === 'icp') return hasToken ? 'icp_get_balance_icrc' : 'icp_get_balance_icp';
-  if (network === 'sol') return hasToken ? 'sol_get_balance_spl' : 'sol_get_balance_sol';
-  if (network === 'trx') return hasToken ? 'trx_get_balance_trc20' : 'trx_get_balance_trx';
-  if (network === 'ton') return hasToken ? 'ton_get_balance_jetton' : 'ton_get_balance_ton';
-  if (network === 'near') return hasToken ? 'near_get_balance_nep141' : 'near_get_balance_near';
-  if (network === 'aptos') return hasToken ? 'aptos_get_balance_token' : 'aptos_get_balance_apt';
-  if (network === 'sui') return hasToken ? 'sui_get_balance_token' : 'sui_get_balance_sui';
-  return `${network}_get_balance`;
+  if (n === 'ethereum') return hasToken ? 'eth_get_balance_erc20' : 'eth_get_balance_eth';
+  if (n === 'sepolia') return hasToken ? 'sepolia_get_balance_erc20' : 'sepolia_get_balance_eth';
+  if (n === 'base') return hasToken ? 'base_get_balance_erc20' : 'base_get_balance_eth';
+  if (n === 'bsc') return hasToken ? 'bsc_get_balance_bep20' : 'bsc_get_balance_bnb';
+  if (n === 'arbitrum') return hasToken ? 'arb_get_balance_erc20' : 'arb_get_balance_eth';
+  if (n === 'optimism') return hasToken ? 'op_get_balance_erc20' : 'op_get_balance_eth';
+  if (n === 'avalanche') return hasToken ? 'avax_get_balance_erc20' : 'avax_get_balance_avax';
+  if (n === 'okx') return hasToken ? 'okb_get_balance_erc20' : 'okb_get_balance_okb';
+  if (n === 'polygon') return hasToken ? 'polygon_get_balance_erc20' : 'polygon_get_balance_pol';
+  if (n === 'bitcoin') return 'btc_get_balance_btc';
+  if (n === 'internet-computer') return hasToken ? 'icp_get_balance_icrc' : 'icp_get_balance_icp';
+  if (n === 'solana') return hasToken ? 'sol_get_balance_spl' : 'sol_get_balance_sol';
+  if (n === 'solana-testnet')
+    return hasToken ? 'solana_testnet_get_balance_spl' : 'solana_testnet_get_balance_sol';
+  if (n === 'tron') return hasToken ? 'trx_get_balance_trc20' : 'trx_get_balance_trx';
+  if (n === 'ton-mainnet') return hasToken ? 'ton_get_balance_jetton' : 'ton_get_balance_ton';
+  if (n === 'near-mainnet') return hasToken ? 'near_get_balance_nep141' : 'near_get_balance_near';
+  if (n === 'aptos-mainnet') return hasToken ? 'aptos_get_balance_token' : 'aptos_get_balance_apt';
+  if (n === 'sui-mainnet') return hasToken ? 'sui_get_balance_token' : 'sui_get_balance_sui';
+  return `${n}_get_balance`;
 }
 
 async function queryBalance(actor, network, account, token) {
@@ -293,8 +534,27 @@ async function queryBalance(actor, network, account, token) {
   return { ok: false, error: '后端返回格式不识别' };
 }
 
+function fillExplorerTemplate(template, params) {
+  if (!template) return '';
+  return String(template)
+    .replaceAll('{address}', encodeURIComponent(params.address || ''))
+    .replaceAll('{token}', encodeURIComponent(params.token || ''));
+}
+
+function buildExplorerUrlFromConfig(config, account, tokenAddress) {
+  const address = String(account || '').trim();
+  const token = String(tokenAddress || '').trim();
+  if (!config || !address) return '';
+
+  if (token && config.tokenUrlTemplate) {
+    return fillExplorerTemplate(config.tokenUrlTemplate, { address, token });
+  }
+  return fillExplorerTemplate(config.addressUrlTemplate, { address, token });
+}
+
 export default function App() {
   const [networkOptions, setNetworkOptions] = useState(DEFAULT_NETWORK_ORDER);
+  const [networkDisplayNames, setNetworkDisplayNames] = useState({});
   const [selectedNetwork, setSelectedNetwork] = useState(DEFAULT_NETWORK_ORDER[0]);
   const [nativeAddressInput, setNativeAddressInput] = useState('');
   const [tokenAddressInput, setTokenAddressInput] = useState('');
@@ -313,6 +573,16 @@ export default function App() {
     data: null,
     error: ''
   });
+  const [configuredTokens, setConfiguredTokens] = useState([]);
+  const [configuredExplorer, setConfiguredExplorer] = useState(null);
+  const [selectedConfiguredTokenAddress, setSelectedConfiguredTokenAddress] = useState('');
+  const [tokenListScrollTop, setTokenListScrollTop] = useState(0);
+  const [tokenRowBalances, setTokenRowBalances] = useState({});
+  const [selectedAssetRowKey, setSelectedAssetRowKey] = useState('__native__');
+  const [tokenDetailAddress, setTokenDetailAddress] = useState('');
+  const [tokenTransferTo, setTokenTransferTo] = useState('');
+  const [tokenTransferAmount, setTokenTransferAmount] = useState('');
+  const [isTokenSending, setIsTokenSending] = useState(false);
 
   const selectedConfig =
     NETWORK_CONFIG[selectedNetwork] || fallbackNetworkConfig(selectedNetwork);
@@ -320,9 +590,18 @@ export default function App() {
   useEffect(() => {
     setNativeAddressInput('');
     setTokenAddressInput('');
+    setConfiguredTokens([]);
+    setConfiguredExplorer(null);
+    setSelectedConfiguredTokenAddress('');
+    setTokenListScrollTop(0);
+    setTokenRowBalances({});
+    setSelectedAssetRowKey('__native__');
+    setTokenDetailAddress('');
+    setTokenTransferTo('');
+    setTokenTransferAmount('');
     setNativeBalanceState({ phase: 'idle', data: null, error: '' });
     setTokenBalanceState({ phase: 'idle', data: null, error: '' });
-    setStatusText(`已切换到 ${selectedConfig.title}，请输入地址后点击“刷新余额”`);
+    setStatusText(`已切换到 ${selectedConfig.title}`);
   }, [selectedNetwork, selectedConfig.title]);
 
   useEffect(() => {
@@ -338,6 +617,9 @@ export default function App() {
           snapshot.networks.includes(current) ? current : snapshot.networks[0]
         );
       }
+      if (snapshot.networkNames && Object.keys(snapshot.networkNames).length > 0) {
+        setNetworkDisplayNames(snapshot.networkNames);
+      }
       if (snapshot.serviceInfo) {
         setServiceInfo(snapshot.serviceInfo);
       }
@@ -346,7 +628,7 @@ export default function App() {
       }
 
       if (snapshot.source === 'backend') {
-        setStatusText('已连接后端：网络列表来自 canister `supported_networks()`');
+        setStatusText('已连接后端：网络列表与名称来自 canister 接口');
       } else {
         setStatusText('未连接后端声明，使用本地网络配置（仍可预览 UI）');
       }
@@ -362,6 +644,181 @@ export default function App() {
     const timer = window.setTimeout(() => setToast(null), 2200);
     return () => window.clearTimeout(timer);
   }, [toast]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    (async () => {
+      if (!selectedConfig.showToken) {
+        setConfiguredTokens([]);
+        setSelectedConfiguredTokenAddress('');
+        setTokenAddressInput('');
+        return;
+      }
+
+      let actor = null;
+      try {
+        actor = await loadBackendActor();
+      } catch {
+        actor = null;
+      }
+
+      if (!actor) {
+        if (!cancelled) {
+          setConfiguredTokens([]);
+          setSelectedConfiguredTokenAddress('');
+          setTokenAddressInput('');
+        }
+        return;
+      }
+
+      const tokens = await queryConfiguredTokens(actor, selectedNetwork);
+      if (cancelled) return;
+
+      setConfiguredTokens(tokens);
+      const firstAddr = tokens[0]?.tokenAddress || '';
+      setSelectedConfiguredTokenAddress(firstAddr);
+      setTokenAddressInput(firstAddr);
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedNetwork, selectedConfig.showToken]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    (async () => {
+      let actor = null;
+      try {
+        actor = await loadBackendActor();
+      } catch {
+        actor = null;
+      }
+      if (!actor) {
+        if (!cancelled) setConfiguredExplorer(null);
+        return;
+      }
+
+      const explorer = await queryConfiguredExplorer(actor, selectedNetwork);
+      if (cancelled) return;
+      setConfiguredExplorer(explorer);
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedNetwork]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    (async () => {
+      const addressMethod = getAddressMethodName(selectedNetwork);
+      const canUseIcpCanisterId = selectedNetwork === 'internet-computer';
+      if (!addressMethod && !canUseIcpCanisterId) return;
+
+      let actor = null;
+      try {
+        actor = await loadBackendActor();
+      } catch {
+        actor = null;
+      }
+      if (!actor || cancelled) return;
+
+      setNativeBalanceState({ phase: 'loading', data: null, error: '' });
+      setStatusText(`正在申请 ${selectedConfig.title} 地址并查询 ${selectedConfig.nativeSymbol} 余额...`);
+
+      let autoAddress = '';
+      if (canUseIcpCanisterId) {
+        autoAddress = (backendCanisterId || '').trim();
+        if (!autoAddress) {
+          setNativeAddressInput('');
+          setNativeBalanceState({
+            phase: 'error',
+            data: null,
+            error: '未读取到 backend canister id'
+          });
+          setStatusText('ICP 地址加载失败: 未读取到 backend canister id');
+          return;
+        }
+      } else {
+        const addrRes = await queryRequestAddress(actor, selectedNetwork);
+        if (cancelled) return;
+        if (!addrRes.ok) {
+          setNativeAddressInput('');
+          setNativeBalanceState({ phase: 'error', data: null, error: addrRes.error });
+          setStatusText(`${selectedConfig.title} 地址申请失败: ${addrRes.error}`);
+          return;
+        }
+        autoAddress = addrRes.data.address;
+      }
+      setNativeAddressInput(autoAddress);
+
+      const balRes = await queryBalance(actor, selectedNetwork, autoAddress, '');
+      if (cancelled) return;
+      if (balRes.ok) {
+        setNativeBalanceState({ phase: 'ok', data: balRes.data, error: '' });
+        setStatusText(`已自动加载 ${selectedConfig.title} 地址与 ${selectedConfig.nativeSymbol} 余额`);
+      } else {
+        setNativeBalanceState({ phase: 'error', data: null, error: balRes.error });
+        setStatusText(`${selectedConfig.nativeSymbol} 余额查询失败: ${balRes.error}`);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [backendCanisterId, selectedConfig.nativeSymbol, selectedConfig.title, selectedNetwork]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    (async () => {
+      if (!selectedConfig.showToken) {
+        setTokenBalanceState({ phase: 'idle', data: null, error: '' });
+        return;
+      }
+
+      const address = nativeAddressInput.trim();
+      const tokenAddress = tokenAddressInput.trim();
+      if (!address || !tokenAddress) {
+        setTokenBalanceState({ phase: 'idle', data: null, error: '' });
+        return;
+      }
+
+      let actor = null;
+      try {
+        actor = await loadBackendActor();
+      } catch {
+        actor = null;
+      }
+      if (!actor || cancelled) {
+        if (!cancelled) {
+          setTokenBalanceState({ phase: 'error', data: null, error: '前端未连接到 backend actor' });
+        }
+        return;
+      }
+
+      setTokenBalanceState({ phase: 'loading', data: null, error: '' });
+      const tokenRes = await queryBalance(actor, selectedNetwork, address, tokenAddress);
+      if (cancelled) return;
+      if (tokenRes.ok) {
+        setTokenBalanceState({ phase: 'ok', data: tokenRes.data, error: '' });
+      } else {
+        setTokenBalanceState({ phase: 'error', data: null, error: tokenRes.error });
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedConfig.showToken, selectedNetwork, nativeAddressInput, tokenAddressInput]);
+
+  useEffect(() => {
+    setTokenRowBalances({});
+  }, [selectedNetwork, nativeAddressInput]);
 
   async function handleRefresh() {
     const address = nativeAddressInput.trim();
@@ -463,7 +920,259 @@ export default function App() {
     tokenBalanceState.phase === 'error'
       ? tokenBalanceState.error
       : tokenBalanceState.data?.message ||
-        (tokenBalanceState.data?.pending ? '后端返回 pending=true' : '输入 Token 地址后可查询');
+        (tokenBalanceState.data?.pending
+          ? '后端返回 pending=true'
+          : configuredTokens.length
+            ? `已从 config 加载 ${configuredTokens.length} 个 Token`
+            : '当前网络 config 未配置 Token');
+
+  const selectedConfiguredToken =
+    configuredTokens.find((t) => t.tokenAddress === selectedConfiguredTokenAddress) ||
+    configuredTokens[0] ||
+    null;
+  const nativeDecimals = nativeBalanceState.data?.decimals ?? null;
+  const nativeAssetRow = {
+    rowKey: '__native__',
+    kind: 'native',
+    symbol: selectedConfig.nativeSymbol,
+    name: `${selectedConfig.title} Native`,
+    tokenAddress: '',
+    decimals: nativeDecimals,
+    network: selectedNetwork
+  };
+  const assetListItems = [
+    nativeAssetRow,
+    ...configuredTokens.map((token) => ({
+      rowKey: `token:${token.tokenAddress}`,
+      kind: 'token',
+      symbol: token.symbol,
+      name: token.name,
+      tokenAddress: token.tokenAddress,
+      decimals: token.decimals,
+      network: token.network
+    }))
+  ];
+  const selectedAsset =
+    assetListItems.find((item) => item.rowKey === selectedAssetRowKey) || assetListItems[0] || null;
+  const detailAsset =
+    assetListItems.find((item) =>
+      item.kind === 'native' ? tokenDetailAddress === '__native__' : item.tokenAddress === tokenDetailAddress
+    ) || null;
+
+  const tokenListCount = assetListItems.length;
+  const tokenVisibleRows = Math.max(1, Math.ceil(TOKEN_VLIST_HEIGHT / TOKEN_VLIST_ROW_HEIGHT));
+  const tokenStartIndex = Math.max(
+    0,
+    Math.floor(tokenListScrollTop / TOKEN_VLIST_ROW_HEIGHT) - TOKEN_VLIST_OVERSCAN
+  );
+  const tokenEndIndex = Math.min(
+    tokenListCount,
+    tokenStartIndex + tokenVisibleRows + TOKEN_VLIST_OVERSCAN * 2
+  );
+  const visibleAssetItems = assetListItems.slice(tokenStartIndex, tokenEndIndex);
+  const visibleTokenItems = visibleAssetItems.filter((item) => item.kind === 'token');
+  const visibleTokenAddressesKey = visibleTokenItems.map((t) => t.tokenAddress).join('|');
+
+  useEffect(() => {
+    let cancelled = false;
+
+    (async () => {
+      if (!selectedConfig.showToken) return;
+      const account = nativeAddressInput.trim();
+      if (!account || !visibleTokenItems.length) return;
+
+      const pendingTokens = visibleTokenItems.filter((token) => {
+        const state = tokenRowBalances[token.tokenAddress];
+        return !state || state.phase === 'idle';
+      });
+      if (!pendingTokens.length) return;
+
+      setTokenRowBalances((prev) => {
+        const next = { ...prev };
+        for (const token of pendingTokens) {
+          next[token.tokenAddress] = { phase: 'loading', amount: '', error: '' };
+        }
+        return next;
+      });
+
+      let actor = null;
+      try {
+        actor = await loadBackendActor();
+      } catch {
+        actor = null;
+      }
+      if (!actor || cancelled) {
+        if (!cancelled) {
+          setTokenRowBalances((prev) => {
+            const next = { ...prev };
+            for (const token of pendingTokens) {
+              next[token.tokenAddress] = {
+                phase: 'error',
+                amount: '',
+                error: '前端未连接到 backend actor'
+              };
+            }
+            return next;
+          });
+        }
+        return;
+      }
+
+      const results = await Promise.all(
+        pendingTokens.map(async (token) => {
+          const resp = await queryBalance(actor, selectedNetwork, account, token.tokenAddress);
+          return { tokenAddress: token.tokenAddress, resp };
+        })
+      );
+      if (cancelled) return;
+
+      setTokenRowBalances((prev) => {
+        const next = { ...prev };
+        for (const row of results) {
+          if (row.resp.ok) {
+            next[row.tokenAddress] = {
+              phase: 'ok',
+              amount: row.resp.data?.amount || '',
+              error: '',
+              pending: Boolean(row.resp.data?.pending),
+              message: row.resp.data?.message || ''
+            };
+          } else {
+            next[row.tokenAddress] = {
+              phase: 'error',
+              amount: '',
+              error: row.resp.error || '查询失败'
+            };
+          }
+        }
+        return next;
+      });
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedConfig.showToken, selectedNetwork, nativeAddressInput, visibleTokenAddressesKey]);
+
+  function openTokenDetail(asset) {
+    if (!asset) return;
+    setSelectedAssetRowKey(asset.rowKey);
+    if (asset.kind === 'native') {
+      setTokenAddressInput('');
+      setTokenDetailAddress('__native__');
+      setTokenBalanceState({ phase: 'idle', data: null, error: '' });
+    } else {
+      const nextAddress = asset.tokenAddress || '';
+      setSelectedConfiguredTokenAddress(nextAddress);
+      setTokenAddressInput(nextAddress);
+      setTokenDetailAddress(nextAddress);
+      setTokenBalanceState({ phase: 'idle', data: null, error: '' });
+    }
+    setTokenTransferTo('');
+    setTokenTransferAmount('');
+  }
+
+  function closeTokenDetail() {
+    setTokenDetailAddress('');
+    setTokenTransferTo('');
+    setTokenTransferAmount('');
+  }
+
+  async function handleTokenSendClick() {
+    const asset = detailAsset;
+    if (!asset) {
+      const msg = '请先选择资产';
+      setToast(msg);
+      setStatusText(msg);
+      return;
+    }
+    if (!nativeAddressInput.trim()) {
+      const msg = '当前钱包地址未就绪，无法发送';
+      setToast(msg);
+      setStatusText(msg);
+      return;
+    }
+    if (!tokenTransferTo.trim()) {
+      const msg = '请输入 To 地址';
+      setToast(msg);
+      setStatusText(msg);
+      return;
+    }
+    if (!tokenTransferAmount.trim()) {
+      const msg = '请输入发送数量';
+      setToast(msg);
+      setStatusText(msg);
+      return;
+    }
+
+    let actor = null;
+    try {
+      actor = await loadBackendActor();
+    } catch {
+      actor = null;
+    }
+    if (!actor) {
+      const msg = '前端未连接到 backend actor';
+      setToast(msg);
+      setStatusText(msg);
+      return;
+    }
+
+    setIsTokenSending(true);
+    setStatusText(`正在发送 ${selectedNetwork} ${asset.symbol || 'Asset'} ...`);
+
+    const sendRes = await queryTransfer(
+      actor,
+      selectedNetwork,
+      asset,
+      nativeAddressInput.trim(),
+      tokenTransferTo.trim(),
+      tokenTransferAmount.trim()
+    );
+
+    if (sendRes.ok) {
+      const txLabel = sendRes.data?.txId ? ` tx=${sendRes.data.txId}` : '';
+      const msg = sendRes.data?.accepted
+        ? `发送成功${txLabel}`
+        : `发送未执行: ${sendRes.data?.message || '后端返回 accepted=false'}`;
+      setStatusText(msg);
+      setToast(msg);
+    } else {
+      const msg = `发送失败: ${sendRes.error}`;
+      setStatusText(msg);
+      setToast(msg);
+    }
+
+    setIsTokenSending(false);
+  }
+
+  function handleOpenExplorerClick() {
+    if (!detailAsset) {
+      const msg = '当前未选中资产';
+      setToast(msg);
+      setStatusText(msg);
+      return;
+    }
+    const account = nativeAddressInput.trim();
+    if (!account) {
+      const msg = '当前地址未就绪，无法打开区块浏览器';
+      setToast(msg);
+      setStatusText(msg);
+      return;
+    }
+
+    const tokenAddress = detailAsset.kind === 'token' ? detailAsset.tokenAddress : '';
+    const url = buildExplorerUrlFromConfig(configuredExplorer, account, tokenAddress);
+    if (!url) {
+      const msg = `当前网络 config 未配置区块浏览器链接: ${selectedNetwork}`;
+      setToast(msg);
+      setStatusText(msg);
+      return;
+    }
+
+    window.open(url, '_blank', 'noopener,noreferrer');
+    setStatusText(`已打开区块浏览器：${selectedConfig.title} ${detailAsset.symbol || 'Asset'}`);
+  }
 
   return (
     <div className="app-shell">
@@ -498,9 +1207,10 @@ export default function App() {
             >
               {networkOptions.map((networkId) => {
                 const cfg = NETWORK_CONFIG[networkId] || fallbackNetworkConfig(networkId);
+                const displayName = networkDisplayNames[networkId] || cfg.title;
                 return (
                   <option key={networkId} value={networkId}>
-                    {cfg.title}
+                    {displayName}
                   </option>
                 );
               })}
@@ -513,72 +1223,8 @@ export default function App() {
         </div>
       </header>
 
-      <main className="layout">
-        <section className="hero panel">
-          <div className="hero__scan" aria-hidden="true" />
-          <div className="hero__content">
-            <p className="hero__tag">NETWORK VIEW / LIVE PANEL</p>
-            <h1 className="hero__title">{selectedConfig.title} 钱包面板</h1>
-            <p className="hero__desc">
-              选择网络后展示原生资产地址与余额，并显示 Token 地址与余额。
-              当前不再使用模拟数据，点击“刷新余额”会直接调用后端 `{getBalanceMethodName(selectedNetwork)}`。
-            </p>
-          </div>
-        </section>
-
+      <main className="layout layout--single">
         <section className="layout__main">
-          <section className="panel control-panel" aria-labelledby="wallet-input-title">
-            <div className="panel__header">
-              <h2 id="wallet-input-title">钱包输入</h2>
-              <p>后续接后端后，这里会驱动真实的余额查询与交易预填。</p>
-            </div>
-
-            <div className="field-grid">
-              <label className="field">
-                <span>{selectedConfig.nativeLabel}</span>
-                <input
-                  type="text"
-                  value={nativeAddressInput}
-                  onChange={(event) => setNativeAddressInput(event.target.value)}
-                  placeholder="请输入地址"
-                  autoComplete="off"
-                />
-              </label>
-
-              {selectedConfig.showToken ? (
-                <label className="field">
-                  <span>{selectedConfig.tokenLabel}</span>
-                  <input
-                    type="text"
-                    value={tokenAddressInput}
-                    onChange={(event) => setTokenAddressInput(event.target.value)}
-                    placeholder="请输入 Token 地址"
-                    autoComplete="off"
-                  />
-                </label>
-              ) : (
-                <div className="field field--ghost" aria-hidden="true">
-                  <span>Token</span>
-                  <div className="field__placeholder">当前网络无 token 卡片展示</div>
-                </div>
-              )}
-            </div>
-
-            <div className="control-panel__actions">
-              <button
-                type="button"
-                className="button button--primary"
-                onClick={handleRefresh}
-                disabled={isRefreshing}
-              >
-                {isRefreshing ? '查询中...' : '刷新余额'}
-              </button>
-              <p className="status-line" role="status">
-                {statusText}
-              </p>
-            </div>
-          </section>
-
           <section className="asset-grid" aria-label="资产卡片">
             <article className="panel asset-card asset-card--native">
               <header className="asset-card__head">
@@ -599,60 +1245,218 @@ export default function App() {
                 <div className="asset-card__balance">{nativeBalanceValue}</div>
                 <div className="asset-card__sub">{nativeBalanceMeta}</div>
               </div>
-            </article>
 
-            {selectedConfig.showToken && (
-              <article className="panel asset-card asset-card--token">
-                <header className="asset-card__head">
-                  <div>
-                    <p className="asset-card__eyebrow">TOKEN ASSET</p>
-                    <h2>{selectedConfig.tokenSymbol || 'Token'}</h2>
+              {selectedConfig.showToken && (
+                <div className="asset-card__row token-vlist">
+                  <div className="token-vlist__header">
+                    <div className="asset-card__label token-vlist__title">Token 列表</div>
+                    <span className="pill">
+                      {tokenListCount ? `${tokenListCount} items` : 'No assets'}
+                    </span>
                   </div>
-                  <span className="pill">Tracked</span>
-                </header>
 
-                <div className="asset-card__row">
-                  <div className="asset-card__label">Token 地址</div>
-                  <div className="mono-block">{tokenAddressInput.trim() || '未设置'}</div>
+                  {tokenListCount ? (
+                    <>
+                      <div
+                        className="token-vlist__viewport"
+                        onScroll={(event) => setTokenListScrollTop(event.currentTarget.scrollTop)}
+                        role="list"
+                        aria-label={`${selectedConfig.title} Token 列表`}
+                      >
+                        <div
+                          className="token-vlist__spacer"
+                          style={{ height: `${tokenListCount * TOKEN_VLIST_ROW_HEIGHT}px` }}
+                        >
+                          {visibleAssetItems.map((asset, offset) => {
+                            const index = tokenStartIndex + offset;
+                            const isActive = asset.rowKey === selectedAssetRowKey;
+                            const rowBalance = asset.kind === 'native' ? null : tokenRowBalances[asset.tokenAddress];
+                            const rowBalanceText =
+                              asset.kind === 'native'
+                                ? nativeBalanceValue
+                                : rowBalance?.phase === 'loading'
+                                  ? '查询中...'
+                                  : rowBalance?.phase === 'error'
+                                    ? '查询失败'
+                                    : rowBalance?.amount || '未查询';
+                            const rowBalanceMeta =
+                              asset.kind === 'native'
+                                ? nativeBalanceMeta
+                                : rowBalance?.phase === 'error'
+                                  ? rowBalance.error
+                                  : rowBalance?.message ||
+                                    (rowBalance?.pending
+                                      ? 'pending=true'
+                                      : `decimals: ${String(asset.decimals ?? '--')}`);
+                            return (
+                              <button
+                                key={asset.rowKey}
+                                type="button"
+                                className={`token-vlist__item${isActive ? ' token-vlist__item--active' : ''}`}
+                                style={{ transform: `translateY(${index * TOKEN_VLIST_ROW_HEIGHT}px)` }}
+                                onClick={() => openTokenDetail(asset)}
+                                role="listitem"
+                                aria-pressed={isActive}
+                              >
+                                <div className="token-vlist__item-main">
+                                  <div className="token-vlist__symbol">{asset.symbol || 'TOKEN'}</div>
+                                  <div className="token-vlist__name">
+                                    {asset.kind === 'native' ? 'Native Asset' : asset.name || 'Unnamed Token'}
+                                  </div>
+                                </div>
+                                <div className="token-vlist__item-meta">
+                                  <div className="token-vlist__addr">
+                                    {asset.kind === 'native'
+                                      ? `地址: ${nativeAddressInput.trim() || '--'}`
+                                      : `合约: ${asset.tokenAddress}`}
+                                  </div>
+                                  <div className="token-vlist__decimals">
+                                    精度: {String(asset.decimals ?? '--')}
+                                  </div>
+                                  <div className="token-vlist__balance">余额: {rowBalanceText}</div>
+                                  <div className="token-vlist__balance-meta">{rowBalanceMeta}</div>
+                                </div>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    </>
+                  ) : (
+                    <div className="mono-block">当前网络 config 未配置 Token</div>
+                  )}
                 </div>
-
-                <div className="asset-card__row">
-                  <div className="asset-card__label">余额</div>
-                  <div className="asset-card__balance">{tokenBalanceValue}</div>
-                  <div className="asset-card__sub">{tokenBalanceMeta}</div>
-                </div>
-              </article>
-            )}
+              )}
+            </article>
           </section>
         </section>
-
-        <aside className="layout__side">
-          <section className="panel side-panel side-panel--mono">
-            <div className="panel__header">
-              <h2>服务信息</h2>
-              <p>来自 `service_info()` 的运行状态。</p>
-            </div>
-            <dl className="info-list">
-              <div>
-                <dt>Version</dt>
-                <dd>{serviceInfo?.version || '--'}</dd>
-              </div>
-              <div>
-                <dt>Owner</dt>
-                <dd>{serviceInfo?.owner || '未读取'}</dd>
-              </div>
-              <div>
-                <dt>Paused</dt>
-                <dd>{serviceInfo ? String(serviceInfo.paused) : '--'}</dd>
-              </div>
-              <div>
-                <dt>Note</dt>
-                <dd>{serviceInfo?.note || '暂无'}</dd>
-              </div>
-            </dl>
-          </section>
-        </aside>
       </main>
+
+      {detailAsset && (
+        <div className="token-detail-modal" role="dialog" aria-modal="true" aria-label="Token 详情">
+          <div className="token-detail-modal__backdrop" onClick={closeTokenDetail} aria-hidden="true" />
+          <section className="panel token-detail-modal__panel">
+            <div className="token-detail-modal__shell">
+              <header className="token-detail-modal__head">
+                <div>
+                  <p className="asset-card__eyebrow">ASSET DETAIL</p>
+                  <h2>
+                    {detailAsset.symbol || 'TOKEN'}{' '}
+                    <span>{detailAsset.kind === 'native' ? 'Native Asset' : detailAsset.name || ''}</span>
+                  </h2>
+                </div>
+                <div className="token-detail-modal__head-actions">
+                  <span className="pill">{selectedConfig.title}</span>
+                  <span className={`pill ${detailAsset.kind === 'native' ? 'pill--glow' : ''}`}>
+                    {detailAsset.kind === 'native' ? 'Native' : 'Token'}
+                  </span>
+                  <button type="button" className="button button--ghost" onClick={closeTokenDetail}>
+                    关闭
+                  </button>
+                </div>
+              </header>
+
+              <div className="token-detail-modal__body">
+                <section className="token-detail-card">
+                  <div className="token-detail-card__title">资产信息</div>
+
+                  <div className="token-detail-kv">
+                    <div className="asset-card__label">接收地址</div>
+                    <div className="mono-block">{nativeAddressInput.trim() || '未获取到当前钱包地址'}</div>
+                  </div>
+
+                  <div className="token-detail-kv">
+                    <div className="asset-card__label">
+                      {detailAsset.kind === 'native' ? '资产类型' : 'Token 合约地址'}
+                    </div>
+                    <div className="mono-block">
+                      {detailAsset.kind === 'native' ? '原生币（无合约地址）' : detailAsset.tokenAddress}
+                    </div>
+                  </div>
+
+                  <div className="token-detail-stats">
+                    <div className="token-detail-stat">
+                      <div className="asset-card__label">精度</div>
+                      <div className="mono-block">{String(detailAsset.decimals ?? '--')}</div>
+                    </div>
+                    <div className="token-detail-stat token-detail-stat--balance">
+                      <div className="asset-card__label">余额</div>
+                      <div className="mono-block token-detail-stat__balance">
+                        {detailAsset.kind === 'native' ? nativeBalanceValue : tokenBalanceValue}
+                      </div>
+                      <div className="asset-card__sub">
+                        {detailAsset.kind === 'native' ? nativeBalanceMeta : tokenBalanceMeta}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="token-detail-card__hint">
+                    当前地址与币种信息来自后端 canister 接口与 config 配置。
+                  </div>
+
+                  <div className="token-detail-card__actions">
+                    <button
+                      type="button"
+                      className="button button--ghost"
+                      onClick={handleOpenExplorerClick}
+                    >
+                      区块浏览器查看
+                    </button>
+                  </div>
+                </section>
+
+                <section className="token-detail-card token-detail-card--send">
+                  <div className="token-detail-card__title">发送交易</div>
+
+                  <label className="token-detail-modal__field">
+                    <span className="asset-card__label">To 地址</span>
+                    <input
+                      value={tokenTransferTo}
+                      onChange={(event) => setTokenTransferTo(event.target.value)}
+                      placeholder="请输入接收方地址"
+                    />
+                  </label>
+
+                  <label className="token-detail-modal__field">
+                    <span className="asset-card__label">数量</span>
+                    <input
+                      value={tokenTransferAmount}
+                      onChange={(event) => setTokenTransferAmount(event.target.value)}
+                      placeholder={`请输入 ${detailAsset.symbol || 'Asset'} 数量`}
+                    />
+                  </label>
+
+                  <div className="token-detail-send-preview">
+                    <div className="token-detail-send-preview__row">
+                      <span>网络</span>
+                      <strong>{selectedConfig.title}</strong>
+                    </div>
+                    <div className="token-detail-send-preview__row">
+                      <span>资产</span>
+                      <strong>{detailAsset.symbol || 'Asset'}</strong>
+                    </div>
+                    <div className="token-detail-send-preview__row">
+                      <span>From</span>
+                      <code>{nativeAddressInput.trim() || '--'}</code>
+                    </div>
+                  </div>
+
+                  <div className="token-detail-modal__actions">
+                    <button
+                      type="button"
+                      className="button button--primary"
+                      onClick={handleTokenSendClick}
+                      disabled={isTokenSending}
+                    >
+                      {isTokenSending ? '发送中...' : '发送'}
+                    </button>
+                  </div>
+                </section>
+              </div>
+            </div>
+          </section>
+        </div>
+      )}
     </div>
   );
 }

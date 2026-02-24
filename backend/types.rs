@@ -3,6 +3,27 @@ use serde::Deserialize;
 
 pub type Network = String;
 
+pub mod networks {
+    pub const BITCOIN: &str = "bitcoin";
+    pub const ETHEREUM: &str = "ethereum";
+    pub const SEPOLIA: &str = "sepolia";
+    pub const BASE: &str = "base";
+    pub const BSC: &str = "bsc";
+    pub const ARBITRUM: &str = "arbitrum";
+    pub const OPTIMISM: &str = "optimism";
+    pub const AVALANCHE: &str = "avalanche";
+    pub const OKX: &str = "okx";
+    pub const POLYGON: &str = "polygon";
+    pub const INTERNET_COMPUTER: &str = "internet-computer";
+    pub const SOLANA: &str = "solana";
+    pub const SOLANA_TESTNET: &str = "solana-testnet";
+    pub const TRON: &str = "tron";
+    pub const TON_MAINNET: &str = "ton-mainnet";
+    pub const NEAR_MAINNET: &str = "near-mainnet";
+    pub const APTOS_MAINNET: &str = "aptos-mainnet";
+    pub const SUI_MAINNET: &str = "sui-mainnet";
+}
+
 #[derive(CandidType, Deserialize, Clone, Debug, Default)]
 pub struct AddressRequest {
     pub index: Option<u32>,
@@ -18,6 +39,22 @@ pub struct AddressResponse {
     pub index: u32,
     pub account_tag: Option<String>,
     pub message: Option<String>,
+}
+
+#[derive(CandidType, Deserialize, Clone, Debug)]
+pub struct ConfiguredTokenResponse {
+    pub network: Network,
+    pub symbol: String,
+    pub name: String,
+    pub token_address: String,
+    pub decimals: u64,
+}
+
+#[derive(CandidType, Deserialize, Clone, Debug)]
+pub struct ConfiguredExplorerResponse {
+    pub network: Network,
+    pub address_url_template: String,
+    pub token_url_template: Option<String>,
 }
 
 #[derive(CandidType, Deserialize, Clone, Debug)]
@@ -66,112 +103,19 @@ pub struct NetworkModuleStatus {
 }
 
 #[derive(CandidType, Deserialize, Clone, Debug)]
+pub struct WalletNetworkInfoResponse {
+    pub id: Network,
+    pub primary_symbol: String,
+    pub supports_send: bool,
+    pub supports_balance: bool,
+    pub default_rpc_url: Option<String>,
+}
+
+#[derive(CandidType, Deserialize, Clone, Debug)]
 pub struct ServiceInfoResponse {
     pub version: String,
     pub owner: Option<Principal>,
     pub paused: bool,
     pub caller: Principal,
     pub note: Option<String>,
-}
-
-pub fn default_network_statuses() -> Vec<NetworkModuleStatus> {
-    let note = Some("Scaffold only. Real on-chain logic will be implemented later.".to_string());
-    vec![
-        NetworkModuleStatus {
-            network: "btc".to_string(),
-            balance_ready: false,
-            transfer_ready: false,
-            note: note.clone(),
-        },
-        NetworkModuleStatus {
-            network: "eth".to_string(),
-            balance_ready: false,
-            transfer_ready: false,
-            note: note.clone(),
-        },
-        NetworkModuleStatus {
-            network: "base".to_string(),
-            balance_ready: false,
-            transfer_ready: false,
-            note: note.clone(),
-        },
-        NetworkModuleStatus {
-            network: "bsc".to_string(),
-            balance_ready: false,
-            transfer_ready: false,
-            note: note.clone(),
-        },
-        NetworkModuleStatus {
-            network: "arb".to_string(),
-            balance_ready: false,
-            transfer_ready: false,
-            note: note.clone(),
-        },
-        NetworkModuleStatus {
-            network: "op".to_string(),
-            balance_ready: false,
-            transfer_ready: false,
-            note: note.clone(),
-        },
-        NetworkModuleStatus {
-            network: "avax".to_string(),
-            balance_ready: false,
-            transfer_ready: false,
-            note: note.clone(),
-        },
-        NetworkModuleStatus {
-            network: "okb".to_string(),
-            balance_ready: false,
-            transfer_ready: false,
-            note: note.clone(),
-        },
-        NetworkModuleStatus {
-            network: "polygon".to_string(),
-            balance_ready: false,
-            transfer_ready: false,
-            note: note.clone(),
-        },
-        NetworkModuleStatus {
-            network: "icp".to_string(),
-            balance_ready: false,
-            transfer_ready: false,
-            note: note.clone(),
-        },
-        NetworkModuleStatus {
-            network: "sol".to_string(),
-            balance_ready: false,
-            transfer_ready: false,
-            note: note.clone(),
-        },
-        NetworkModuleStatus {
-            network: "trx".to_string(),
-            balance_ready: false,
-            transfer_ready: false,
-            note: note.clone(),
-        },
-        NetworkModuleStatus {
-            network: "ton".to_string(),
-            balance_ready: false,
-            transfer_ready: false,
-            note: note.clone(),
-        },
-        NetworkModuleStatus {
-            network: "near".to_string(),
-            balance_ready: false,
-            transfer_ready: false,
-            note: note.clone(),
-        },
-        NetworkModuleStatus {
-            network: "aptos".to_string(),
-            balance_ready: false,
-            transfer_ready: false,
-            note: note.clone(),
-        },
-        NetworkModuleStatus {
-            network: "sui".to_string(),
-            balance_ready: false,
-            transfer_ready: false,
-            note,
-        },
-    ]
 }

@@ -1,7 +1,7 @@
 use crate::error::{WalletError, WalletResult};
 use crate::types::{BalanceRequest, BalanceResponse, TransferRequest, TransferResponse};
 
-const CHAIN_NAME: &str = "sui";
+const CHAIN_NAME: &str = "sui-mainnet";
 
 pub fn get_balance(req: BalanceRequest) -> WalletResult<BalanceResponse> {
     validate_account(&req.account)?;

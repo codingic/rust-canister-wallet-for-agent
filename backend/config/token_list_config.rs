@@ -1,7 +1,7 @@
-use crate::config::rpc_config;
 use crate::config::token_list::{
     arbitrum, avalanche, base, bsc, ethereum, icp, optimism, polygon, sepolia, solana,
 };
+use crate::types::networks;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ConfiguredToken {
@@ -13,19 +13,23 @@ pub struct ConfiguredToken {
 }
 
 pub fn configured_tokens(network: &str) -> &'static [ConfiguredToken] {
-    match rpc_config::normalize_wallet_network(network).as_str() {
-        "icp" => icp::TOKENS,
-        "eth" => ethereum::TOKENS,
-        "sepolia" => sepolia::TOKENS,
-        "base" => base::TOKENS,
-        "polygon" => polygon::TOKENS,
-        "arbitrum" => arbitrum::TOKENS,
-        "optimism" => optimism::TOKENS,
-        "bsc" => bsc::TOKENS,
-        "avalanche" => avalanche::TOKENS,
-        "sol" => solana::TOKENS,
+    match normalize_config_network_name(network).as_str() {
+        networks::INTERNET_COMPUTER => icp::TOKENS,
+        networks::ETHEREUM => ethereum::TOKENS,
+        networks::SEPOLIA => sepolia::TOKENS,
+        networks::BASE => base::TOKENS,
+        networks::POLYGON => polygon::TOKENS,
+        networks::ARBITRUM => arbitrum::TOKENS,
+        networks::OPTIMISM => optimism::TOKENS,
+        networks::BSC => bsc::TOKENS,
+        networks::AVALANCHE => avalanche::TOKENS,
+        networks::SOLANA => solana::TOKENS,
         _ => &[],
     }
+}
+
+fn normalize_config_network_name(network: &str) -> String {
+    network.trim().to_lowercase().replace('_', "-")
 }
 
 #[cfg(test)]
@@ -33,9 +37,9 @@ mod tests {
     use super::*;
 
     #[test]
-    fn token_lists_follow_network_normalization() {
-        assert!(!configured_tokens("eth").is_empty());
-        assert_eq!(configured_tokens("ic").len(), 0);
-        assert_eq!(configured_tokens("sol").len(), 1);
+    fn token_lists_follow_network_names() {
+        assert!(!configured_tokens(networks::ETHEREUM).is_empty());
+        assert_eq!(configured_tokens(networks::INTERNET_COMPUTER).len(), 0);
+        assert_eq!(configured_tokens(networks::SOLANA).len(), 1);
     }
 }

@@ -14,46 +14,24 @@ const BASE58_ALPHABET: &[u8; 58] = b"123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghij
 pub struct ResolvedAddressRequest {
     pub index: u32,
     pub account_tag: Option<String>,
-    pub derivation_path: Vec<Vec<u8>>,
 }
 
 pub fn resolve_address_request(
-    network: &str,
+    _network: &str,
     req: AddressRequest,
 ) -> WalletResult<ResolvedAddressRequest> {
-    let caller = ic_cdk::api::msg_caller();
     let index = req.index.unwrap_or(0);
     let account_tag = normalize_account_tag(req.account_tag)?;
 
-    let mut derivation_path = vec![
-        b"rustwalletforagent".to_vec(),
-        b"network".to_vec(),
-        network.as_bytes().to_vec(),
-        b"caller".to_vec(),
-        caller.as_slice().to_vec(),
-        b"index".to_vec(),
-        index.to_be_bytes().to_vec(),
-    ];
-
-    if let Some(tag) = &account_tag {
-        derivation_path.push(b"account_tag".to_vec());
-        derivation_path.push(tag.as_bytes().to_vec());
-    }
-
-    Ok(ResolvedAddressRequest {
-        index,
-        account_tag,
-        derivation_path,
-    })
+    Ok(ResolvedAddressRequest { index, account_tag })
 }
 
-pub async fn fetch_ecdsa_secp256k1_public_key(
-    derivation_path: Vec<Vec<u8>>,
-) -> WalletResult<(Vec<u8>, String)> {
+pub async fn fetch_ecdsa_secp256k1_public_key() -> WalletResult<(Vec<u8>, String)> {
     let key_name = config::app_config::default_ecdsa_key_name().to_string();
+
     let args = EcdsaPublicKeyArgs {
         canister_id: None,
-        derivation_path,
+        derivation_path: vec![],
         key_id: EcdsaKeyId {
             curve: EcdsaCurve::Secp256k1,
             name: key_name.clone(),
@@ -69,12 +47,12 @@ pub async fn fetch_ecdsa_secp256k1_public_key(
 
 pub async fn fetch_schnorr_public_key(
     algorithm: SchnorrAlgorithm,
-    derivation_path: Vec<Vec<u8>>,
 ) -> WalletResult<(Vec<u8>, String)> {
     let key_name = config::app_config::default_schnorr_key_name().to_string();
+
     let args = SchnorrPublicKeyArgs {
         canister_id: None,
-        derivation_path,
+        derivation_path: vec![],
         key_id: SchnorrKeyId {
             algorithm,
             name: key_name.clone(),
