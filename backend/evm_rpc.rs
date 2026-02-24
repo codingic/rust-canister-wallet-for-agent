@@ -1,7 +1,5 @@
 use candid::Nat;
-use ic_cdk::management_canister::{
-    self, EcdsaCurve, EcdsaKeyId, HttpHeader, HttpMethod, HttpRequestArgs, SignWithEcdsaArgs,
-};
+use ic_cdk::management_canister::{self, EcdsaCurve, EcdsaKeyId, SignWithEcdsaArgs};
 use k256::ecdsa::{RecoveryId, Signature, VerifyingKey};
 use k256::elliptic_curve::sec1::ToEncodedPoint;
 use k256::PublicKey;
@@ -13,6 +11,7 @@ use sha3::{Digest, Keccak256};
 use crate::addressing;
 use crate::config;
 use crate::error::{WalletError, WalletResult};
+use crate::sdk::evm_tx;
 use crate::types::{BalanceRequest, BalanceResponse, TransferRequest, TransferResponse};
 
 const EVM_NATIVE_DECIMALS: usize = 18;
@@ -47,8 +46,8 @@ pub async fn get_native_eth_balance(
 
     let result_hex =
         rpc_call_hex_string(network, "eth_getBalance", json!([account, "latest"])).await?;
-    let wei = parse_hex_quantity(&result_hex)?;
-    let eth_text = format_units(&wei, EVM_NATIVE_DECIMALS);
+    let wei = evm_tx::parse_hex_quantity(&result_hex)?;
+    let eth_text = evm_tx::format_units(&wei, EVM_NATIVE_DECIMALS);
 
     Ok(BalanceResponse {
         network: network.to_string(),
@@ -75,7 +74,7 @@ pub async fn get_erc20_balance(
     let account_bytes = hex_address_to_20_bytes(&account)?;
 
     let decimals = fetch_erc20_decimals(network, &token_contract).await?;
-    let data = encode_erc20_balance_of_call(&account_bytes);
+    let data = evm_tx::encode_erc20_balance_of_call(&account_bytes);
     let result_hex = rpc_call_hex_string(
         network,
         "eth_call",
@@ -88,14 +87,14 @@ pub async fn get_erc20_balance(
         ]),
     )
     .await?;
-    let raw = parse_hex_data(&result_hex)?;
+    let raw = evm_tx::parse_hex_data(&result_hex)?;
     let amount = BigUint::from_bytes_be(&raw);
 
     Ok(BalanceResponse {
         network: network.to_string(),
         account,
         token: Some(token_contract),
-        amount: Some(format_units(&amount, usize::from(decimals))),
+        amount: Some(evm_tx::format_units(&amount, usize::from(decimals))),
         decimals: Some(decimals),
         block_ref: Some("latest".to_string()),
         pending: false,
@@ -113,7 +112,7 @@ pub async fn transfer_native_eth(
         ));
     }
     let to = normalize_and_validate_hex_address(&req.to)?;
-    let value_wei = parse_decimal_units(req.amount.trim(), EVM_NATIVE_DECIMALS)?;
+    let value_wei = evm_tx::parse_decimal_units(req.amount.trim(), EVM_NATIVE_DECIMALS)?;
     if value_wei == BigUint::from(0u8) {
         return Err(WalletError::invalid_input("amount must be > 0"));
     }
@@ -149,12 +148,12 @@ pub async fn transfer_erc20(network: &str, req: TransferRequest) -> WalletResult
     let to_bytes = hex_address_to_20_bytes(&to)?;
 
     let decimals = fetch_erc20_decimals(network, &token_contract).await?;
-    let amount_units = parse_decimal_units(req.amount.trim(), usize::from(decimals))?;
+    let amount_units = evm_tx::parse_decimal_units(req.amount.trim(), usize::from(decimals))?;
     if amount_units == BigUint::from(0u8) {
         return Err(WalletError::invalid_input("amount must be > 0"));
     }
 
-    let data = encode_erc20_transfer_call(&to_bytes, &amount_units)?;
+    let data = evm_tx::encode_erc20_transfer_call(&to_bytes, &amount_units)?;
     let tx_id = send_legacy_transaction(
         network,
         req.from.as_deref(),
@@ -196,7 +195,7 @@ async fn send_legacy_transaction(
         WalletError::Internal(format!("missing chain_id config for network: {network}"))
     })?;
 
-    let nonce = parse_hex_quantity(
+    let nonce = evm_tx::parse_hex_quantity(
         &rpc_call_hex_string(
             network,
             "eth_getTransactionCount",
@@ -205,13 +204,14 @@ async fn send_legacy_transaction(
         .await?,
     )?;
 
-    let gas_price =
-        parse_hex_quantity(&rpc_call_hex_string(network, "eth_gasPrice", json!([])).await?)?;
+    let gas_price = evm_tx::parse_hex_quantity(
+        &rpc_call_hex_string(network, "eth_gasPrice", json!([])).await?,
+    )?;
 
-    let signing_payload = rlp_encode_legacy_unsigned(
+    let signing_payload = evm_tx::rlp_encode_legacy_unsigned(
         &nonce, &gas_price, gas_limit, &to_bytes, value, data, chain_id,
     );
-    let signing_hash = keccak256(&signing_payload);
+    let signing_hash = evm_tx::keccak256(&signing_payload);
     let signature_bytes = sign_prehash_with_management(&signing_hash).await?;
 
     let signature = Signature::try_from(signature_bytes.as_slice()).map_err(|err| {
@@ -234,7 +234,7 @@ async fn send_legacy_transaction(
 
     let r = BigUint::from_bytes_be(&signature_bytes[..32]);
     let s = BigUint::from_bytes_be(&signature_bytes[32..]);
-    let signed_raw = rlp_encode_legacy_signed(
+    let signed_raw = evm_tx::rlp_encode_legacy_signed(
         &nonce,
         &gas_price,
         gas_limit,
@@ -315,27 +315,7 @@ async fn rpc_call(network: &str, method: &str, params: Value) -> WalletResult<Va
         WalletError::Internal(format!("serialize rpc request failed ({method}): {err}"))
     })?;
 
-    let http_args = HttpRequestArgs {
-        url: rpc_url,
-        max_response_bytes: Some(32 * 1024),
-        method: HttpMethod::POST,
-        headers: vec![
-            HttpHeader {
-                name: "content-type".to_string(),
-                value: "application/json".to_string(),
-            },
-            HttpHeader {
-                name: "accept".to_string(),
-                value: "application/json".to_string(),
-            },
-        ],
-        body: Some(body),
-        transform: None,
-    };
-
-    let http_res = management_canister::http_request(&http_args)
-        .await
-        .map_err(|err| WalletError::Internal(format!("http outcall failed: {err}")))?;
+    let http_res = crate::outcall::post_json(rpc_url, body, 32 * 1024, "evm rpc").await?;
 
     if http_res.status != Nat::from(200u16) {
         let body_text = String::from_utf8_lossy(&http_res.body);
@@ -433,7 +413,7 @@ async fn fetch_erc20_decimals(network: &str, token_contract: &str) -> WalletResu
     )
     .await?;
 
-    let bytes = parse_hex_data(&result_hex)?;
+    let bytes = evm_tx::parse_hex_data(&result_hex)?;
     if bytes.is_empty() {
         return Err(WalletError::Internal(
             "ERC20 decimals() returned empty data".into(),
@@ -449,298 +429,31 @@ async fn fetch_erc20_decimals(network: &str, token_contract: &str) -> WalletResu
     Ok(*raw.last().unwrap_or(&0))
 }
 
-fn encode_erc20_transfer_call(to: &[u8; 20], amount: &BigUint) -> WalletResult<Vec<u8>> {
-    let amount_bytes = amount.to_bytes_be();
-    if amount_bytes.len() > 32 {
-        return Err(WalletError::invalid_input("token amount is too large"));
-    }
-
-    let mut out = Vec::with_capacity(4 + 32 + 32);
-    out.extend_from_slice(&[0xa9, 0x05, 0x9c, 0xbb]); // transfer(address,uint256)
-    out.extend_from_slice(&[0u8; 12]);
-    out.extend_from_slice(to);
-    out.extend_from_slice(&vec![0u8; 32 - amount_bytes.len()]);
-    out.extend_from_slice(&amount_bytes);
-    Ok(out)
-}
-
-fn encode_erc20_balance_of_call(account: &[u8; 20]) -> Vec<u8> {
-    let mut out = Vec::with_capacity(4 + 32);
-    out.extend_from_slice(&[0x70, 0xa0, 0x82, 0x31]); // balanceOf(address)
-    out.extend_from_slice(&[0u8; 12]);
-    out.extend_from_slice(account);
-    out
-}
-
-fn parse_hex_quantity(hex: &str) -> WalletResult<BigUint> {
-    let trimmed = hex.trim();
-    let digits = trimmed
-        .strip_prefix("0x")
-        .or_else(|| trimmed.strip_prefix("0X"))
-        .ok_or_else(|| WalletError::Internal("rpc result is not a hex quantity".to_string()))?;
-    if digits.is_empty() {
-        return Err(WalletError::Internal(
-            "rpc result hex quantity is empty".to_string(),
-        ));
-    }
-    BigUint::parse_bytes(digits.as_bytes(), 16)
-        .ok_or_else(|| WalletError::Internal("rpc result hex quantity parse failed".to_string()))
-}
-
-fn parse_hex_data(hex: &str) -> WalletResult<Vec<u8>> {
-    let trimmed = hex.trim();
-    let digits = trimmed
-        .strip_prefix("0x")
-        .or_else(|| trimmed.strip_prefix("0X"))
-        .ok_or_else(|| WalletError::Internal("rpc result is not hex data".to_string()))?;
-    if digits.is_empty() {
-        return Ok(Vec::new());
-    }
-    if digits.len() % 2 != 0 {
-        return Err(WalletError::Internal(
-            "rpc hex data length is odd".to_string(),
-        ));
-    }
-    let mut out = Vec::with_capacity(digits.len() / 2);
-    let bytes = digits.as_bytes();
-    for i in (0..bytes.len()).step_by(2) {
-        let hi = from_hex_nibble(bytes[i])?;
-        let lo = from_hex_nibble(bytes[i + 1])?;
-        out.push((hi << 4) | lo);
-    }
-    Ok(out)
-}
-
-fn parse_decimal_units(value: &str, decimals: usize) -> WalletResult<BigUint> {
-    let v = value.trim();
-    if v.is_empty() {
-        return Err(WalletError::invalid_input("amount is required"));
-    }
-    if v.starts_with('-') {
-        return Err(WalletError::invalid_input("amount must be positive"));
-    }
-    let mut parts = v.split('.');
-    let whole = parts.next().unwrap_or_default();
-    let frac = parts.next();
-    if parts.next().is_some() {
-        return Err(WalletError::invalid_input("invalid decimal amount format"));
-    }
-    if whole.is_empty() && frac.is_none() {
-        return Err(WalletError::invalid_input("amount is required"));
-    }
-    if !whole.is_empty() && !whole.as_bytes().iter().all(|b| b.is_ascii_digit()) {
-        return Err(WalletError::invalid_input(
-            "amount has non-digit characters",
-        ));
-    }
-    let frac = frac.unwrap_or("");
-    if !frac.is_empty() && !frac.as_bytes().iter().all(|b| b.is_ascii_digit()) {
-        return Err(WalletError::invalid_input(
-            "amount has non-digit characters",
-        ));
-    }
-    if frac.len() > decimals {
-        return Err(WalletError::invalid_input(format!(
-            "amount supports at most {decimals} decimal places"
-        )));
-    }
-
-    let whole_num = if whole.is_empty() {
-        BigUint::from(0u8)
-    } else {
-        BigUint::parse_bytes(whole.as_bytes(), 10)
-            .ok_or_else(|| WalletError::invalid_input("invalid whole amount"))?
-    };
-    let scale = BigUint::from(10u8).pow(decimals as u32);
-    let mut out = &whole_num * &scale;
-
-    if !frac.is_empty() {
-        let mut frac_padded = frac.to_string();
-        frac_padded.push_str(&"0".repeat(decimals - frac.len()));
-        let frac_num = BigUint::parse_bytes(frac_padded.as_bytes(), 10)
-            .ok_or_else(|| WalletError::invalid_input("invalid fractional amount"))?;
-        out += frac_num;
-    }
-    Ok(out)
-}
-
-fn format_units(value: &BigUint, decimals: usize) -> String {
-    if decimals == 0 {
-        return value.to_str_radix(10);
-    }
-
-    let raw = value.to_str_radix(10);
-    if raw == "0" {
-        return "0".to_string();
-    }
-
-    if raw.len() <= decimals {
-        let mut out = String::from("0.");
-        out.push_str(&"0".repeat(decimals - raw.len()));
-        out.push_str(&raw);
-        trim_decimal_zeros(out)
-    } else {
-        let split = raw.len() - decimals;
-        let mut out = String::with_capacity(raw.len() + 1);
-        out.push_str(&raw[..split]);
-        out.push('.');
-        out.push_str(&raw[split..]);
-        trim_decimal_zeros(out)
-    }
-}
-
-fn trim_decimal_zeros(mut s: String) -> String {
-    if let Some(dot) = s.find('.') {
-        while s.ends_with('0') {
-            s.pop();
-        }
-        if s.len() == dot + 1 {
-            s.pop();
-        }
-    }
-    s
-}
-
-fn keccak256(data: &[u8]) -> [u8; 32] {
-    let digest = Keccak256::digest(data);
-    let mut out = [0u8; 32];
-    out.copy_from_slice(&digest);
-    out
-}
-
-fn rlp_encode_legacy_unsigned(
-    nonce: &BigUint,
-    gas_price: &BigUint,
-    gas_limit: &BigUint,
-    to: &[u8; 20],
-    value: &BigUint,
-    data: &[u8],
-    chain_id: u64,
-) -> Vec<u8> {
-    rlp_encode_list(&[
-        rlp_encode_biguint(nonce),
-        rlp_encode_biguint(gas_price),
-        rlp_encode_biguint(gas_limit),
-        rlp_encode_bytes(to),
-        rlp_encode_biguint(value),
-        rlp_encode_bytes(data),
-        rlp_encode_u64(chain_id),
-        rlp_encode_u64(0),
-        rlp_encode_u64(0),
-    ])
-}
-
-fn rlp_encode_legacy_signed(
-    nonce: &BigUint,
-    gas_price: &BigUint,
-    gas_limit: &BigUint,
-    to: &[u8; 20],
-    value: &BigUint,
-    data: &[u8],
-    v: &BigUint,
-    r: &BigUint,
-    s: &BigUint,
-) -> Vec<u8> {
-    rlp_encode_list(&[
-        rlp_encode_biguint(nonce),
-        rlp_encode_biguint(gas_price),
-        rlp_encode_biguint(gas_limit),
-        rlp_encode_bytes(to),
-        rlp_encode_biguint(value),
-        rlp_encode_bytes(data),
-        rlp_encode_biguint(v),
-        rlp_encode_biguint(r),
-        rlp_encode_biguint(s),
-    ])
-}
-
-fn rlp_encode_u64(v: u64) -> Vec<u8> {
-    rlp_encode_biguint(&BigUint::from(v))
-}
-
-fn rlp_encode_biguint(v: &BigUint) -> Vec<u8> {
-    if *v == BigUint::from(0u8) {
-        return rlp_encode_bytes(&[]);
-    }
-    rlp_encode_bytes(&v.to_bytes_be())
-}
-
-fn rlp_encode_bytes(data: &[u8]) -> Vec<u8> {
-    match data.len() {
-        0 => vec![0x80],
-        1 if data[0] < 0x80 => vec![data[0]],
-        len if len <= 55 => {
-            let mut out = Vec::with_capacity(1 + len);
-            out.push(0x80 + len as u8);
-            out.extend_from_slice(data);
-            out
-        }
-        len => {
-            let len_bytes = usize_to_be_bytes(len);
-            let mut out = Vec::with_capacity(1 + len_bytes.len() + len);
-            out.push(0xb7 + len_bytes.len() as u8);
-            out.extend_from_slice(&len_bytes);
-            out.extend_from_slice(data);
-            out
-        }
-    }
-}
-
-fn rlp_encode_list(items: &[Vec<u8>]) -> Vec<u8> {
-    let payload_len: usize = items.iter().map(Vec::len).sum();
-    let mut payload = Vec::with_capacity(payload_len);
-    for item in items {
-        payload.extend_from_slice(item);
-    }
-
-    if payload_len <= 55 {
-        let mut out = Vec::with_capacity(1 + payload_len);
-        out.push(0xc0 + payload_len as u8);
-        out.extend_from_slice(&payload);
-        out
-    } else {
-        let len_bytes = usize_to_be_bytes(payload_len);
-        let mut out = Vec::with_capacity(1 + len_bytes.len() + payload_len);
-        out.push(0xf7 + len_bytes.len() as u8);
-        out.extend_from_slice(&len_bytes);
-        out.extend_from_slice(&payload);
-        out
-    }
-}
-
-fn usize_to_be_bytes(value: usize) -> Vec<u8> {
-    let bytes = value.to_be_bytes();
-    let first_non_zero = bytes
-        .iter()
-        .position(|b| *b != 0)
-        .unwrap_or(bytes.len() - 1);
-    bytes[first_non_zero..].to_vec()
-}
-
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use crate::sdk::evm_tx;
+    use num_bigint::BigUint;
 
     #[test]
     fn format_units_trims_trailing_zeros() {
         let v = BigUint::parse_bytes(b"1234500000000000000", 10).unwrap();
-        assert_eq!(format_units(&v, 18), "1.2345");
+        assert_eq!(evm_tx::format_units(&v, 18), "1.2345");
     }
 
     #[test]
     fn format_units_handles_small_values() {
         let v = BigUint::parse_bytes(b"1000000000", 10).unwrap();
-        assert_eq!(format_units(&v, 18), "0.000000001");
+        assert_eq!(evm_tx::format_units(&v, 18), "0.000000001");
     }
 
     #[test]
     fn parse_decimal_units_works() {
-        let v = parse_decimal_units("0.001", 18).unwrap();
+        let v = evm_tx::parse_decimal_units("0.001", 18).unwrap();
         assert_eq!(v.to_str_radix(10), "1000000000000000");
     }
 
     #[test]
     fn rlp_encodes_zero_as_empty_string() {
-        assert_eq!(rlp_encode_u64(0), vec![0x80]);
+        assert_eq!(evm_tx::rlp_encode_u64_for_test(0), vec![0x80]);
     }
 }

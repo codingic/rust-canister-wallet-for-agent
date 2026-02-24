@@ -9,7 +9,7 @@ pub enum AppMode {
 pub const MODE: AppMode = AppMode::Dev;
 
 pub const ICP_LEDGER_MAINNET_PRINCIPAL_TEXT: &str = "ryjl3-tyaaa-aaaaa-aaaba-cai";
-pub const ICP_LEDGER_LOCAL_PRINCIPAL_TEXT: &str = "umunu-kh777-77774-qaaca-cai";
+pub const ICP_LEDGER_LOCAL_PRINCIPAL_TEXT: &str = "xjaw7-xp777-77774-qaajq-cai"; // "umunu-kh777-77774-qaaca-cai";
 
 pub fn is_dev_mode() -> bool {
     matches!(MODE, AppMode::Dev)

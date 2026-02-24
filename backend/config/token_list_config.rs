@@ -39,7 +39,9 @@ mod tests {
     #[test]
     fn token_lists_follow_network_names() {
         assert!(!configured_tokens(networks::ETHEREUM).is_empty());
-        assert_eq!(configured_tokens(networks::INTERNET_COMPUTER).len(), 0);
+        let icp_tokens = configured_tokens(networks::INTERNET_COMPUTER);
+        assert!(!icp_tokens.is_empty());
+        assert!(icp_tokens.iter().any(|t| t.symbol == "CHAT"));
         assert_eq!(configured_tokens(networks::SOLANA).len(), 1);
     }
 }

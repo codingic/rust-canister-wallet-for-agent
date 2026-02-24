@@ -1,15 +1,14 @@
 use candid::Principal;
 
+use crate::chains::{aptos, btc, eth, icp, near, sepolia, sol, solana_testnet, sui, ton, trx};
 use crate::config;
 use crate::error::{WalletError, WalletResult};
 use crate::types::{
-    AddressRequest, AddressResponse, BalanceRequest, BalanceResponse, ConfiguredExplorerResponse,
+    AddressResponse, BalanceRequest, BalanceResponse, ConfiguredExplorerResponse,
     ConfiguredTokenResponse, NetworkModuleStatus, ServiceInfoResponse, TransferRequest,
     TransferResponse, WalletNetworkInfoResponse,
 };
-use crate::{
-    aptos, btc, eth, evm_rpc, icp, near, sepolia, sol, solana_testnet, state, sui, ton, trx,
-};
+use crate::{evm_rpc, state};
 
 const API_VERSION: &str = "0.1.0";
 
@@ -80,6 +79,8 @@ fn wallet_networks() -> Vec<WalletNetworkInfoResponse> {
         .map(|info| WalletNetworkInfoResponse {
             id: info.id.to_string(),
             primary_symbol: info.primary_symbol.to_string(),
+            address_family: info.address_family.to_string(),
+            shared_address_group: info.shared_address_group.to_string(),
             supports_send: info.supports_send,
             supports_balance: info.supports_balance,
             default_rpc_url: info.default_rpc_url.map(ToString::to_string),
@@ -139,15 +140,6 @@ fn unpause() -> WalletResult<()> {
     Ok(())
 }
 
-macro_rules! balance_query {
-    ($name:ident, $module:ident) => {
-        #[ic_cdk::query]
-        fn $name(req: BalanceRequest) -> WalletResult<BalanceResponse> {
-            $module::get_balance(req)
-        }
-    };
-}
-
 macro_rules! balance_update {
     ($name:ident, $module:ident) => {
         #[ic_cdk::update]
@@ -157,22 +149,12 @@ macro_rules! balance_update {
     };
 }
 
-macro_rules! transfer_update {
-    ($name:ident, $module:ident) => {
-        #[ic_cdk::update]
-        fn $name(req: TransferRequest) -> WalletResult<TransferResponse> {
-            ensure_not_paused()?;
-            $module::transfer(req)
-        }
-    };
-}
-
 macro_rules! address_update {
     ($name:ident, $module:ident) => {
         #[ic_cdk::update]
-        async fn $name(req: AddressRequest) -> WalletResult<AddressResponse> {
+        async fn $name() -> WalletResult<AddressResponse> {
             ensure_not_paused()?;
-            $module::request_address(req).await
+            $module::request_address().await
         }
     };
 }
@@ -223,12 +205,32 @@ macro_rules! evm_token_transfer_update {
 
 address_update!(btc_request_address, btc);
 address_update!(eth_request_address, eth);
+address_update!(base_request_address, eth);
+address_update!(bsc_request_address, eth);
+address_update!(arb_request_address, eth);
+address_update!(op_request_address, eth);
+address_update!(avax_request_address, eth);
+address_update!(okb_request_address, eth);
+address_update!(polygon_request_address, eth);
 address_update!(sepolia_request_address, sepolia);
 address_update!(sol_request_address, sol);
 address_update!(solana_testnet_request_address, solana_testnet);
+address_update!(trx_request_address, trx);
+address_update!(ton_request_address, ton);
+address_update!(near_request_address, near);
+address_update!(aptos_request_address, aptos);
+address_update!(sui_request_address, sui);
 
-balance_query!(btc_get_balance_btc, btc);
-transfer_update!(btc_transfer_btc, btc);
+#[ic_cdk::update]
+async fn btc_get_balance_btc(req: BalanceRequest) -> WalletResult<BalanceResponse> {
+    btc::get_balance(req).await
+}
+
+#[ic_cdk::update]
+async fn btc_transfer_btc(req: TransferRequest) -> WalletResult<TransferResponse> {
+    ensure_not_paused()?;
+    btc::transfer(req).await
+}
 
 evm_native_balance_update!(eth_get_balance_eth, "ethereum");
 evm_token_balance_update!(eth_get_balance_erc20, "ethereum");
@@ -275,10 +277,27 @@ evm_token_balance_update!(polygon_get_balance_erc20, "polygon");
 evm_native_transfer_update!(polygon_transfer_pol, "polygon");
 evm_token_transfer_update!(polygon_transfer_erc20, "polygon");
 
-balance_query!(icp_get_balance_icp, icp);
-balance_query!(icp_get_balance_icrc, icp);
-transfer_update!(icp_transfer_icp, icp);
-transfer_update!(icp_transfer_icrc, icp);
+#[ic_cdk::query(composite = true)]
+async fn icp_get_balance_icp(req: BalanceRequest) -> WalletResult<BalanceResponse> {
+    icp::get_balance_icp(req).await
+}
+
+#[ic_cdk::query(composite = true)]
+async fn icp_get_balance_icrc(req: BalanceRequest) -> WalletResult<BalanceResponse> {
+    icp::get_balance_icrc(req).await
+}
+
+#[ic_cdk::update]
+async fn icp_transfer_icp(req: TransferRequest) -> WalletResult<TransferResponse> {
+    ensure_not_paused()?;
+    icp::transfer_icp(req).await
+}
+
+#[ic_cdk::update]
+async fn icp_transfer_icrc(req: TransferRequest) -> WalletResult<TransferResponse> {
+    ensure_not_paused()?;
+    icp::transfer_icrc(req).await
+}
 
 balance_update!(sol_get_balance_sol, sol);
 balance_update!(sol_get_balance_spl, sol);
@@ -306,30 +325,105 @@ async fn solana_testnet_transfer_spl(req: TransferRequest) -> WalletResult<Trans
     solana_testnet::transfer_spl(req).await
 }
 
-balance_query!(trx_get_balance_trx, trx);
-balance_query!(trx_get_balance_trc20, trx);
-transfer_update!(trx_transfer_trx, trx);
-transfer_update!(trx_transfer_trc20, trx);
+#[ic_cdk::update]
+async fn trx_get_balance_trx(req: BalanceRequest) -> WalletResult<BalanceResponse> {
+    trx::get_balance(req).await
+}
 
-balance_query!(ton_get_balance_ton, ton);
-balance_query!(ton_get_balance_jetton, ton);
-transfer_update!(ton_transfer_ton, ton);
-transfer_update!(ton_transfer_jetton, ton);
+#[ic_cdk::update]
+async fn trx_get_balance_trc20(req: BalanceRequest) -> WalletResult<BalanceResponse> {
+    trx::get_balance(req).await
+}
 
-balance_query!(near_get_balance_near, near);
-balance_query!(near_get_balance_nep141, near);
-transfer_update!(near_transfer_near, near);
-transfer_update!(near_transfer_nep141, near);
+#[ic_cdk::update]
+async fn trx_transfer_trx(req: TransferRequest) -> WalletResult<TransferResponse> {
+    ensure_not_paused()?;
+    trx::transfer(req).await
+}
 
-balance_query!(aptos_get_balance_apt, aptos);
-balance_query!(aptos_get_balance_token, aptos);
-transfer_update!(aptos_transfer_apt, aptos);
-transfer_update!(aptos_transfer_token, aptos);
+#[ic_cdk::update]
+async fn trx_transfer_trc20(req: TransferRequest) -> WalletResult<TransferResponse> {
+    ensure_not_paused()?;
+    trx::transfer(req).await
+}
 
-balance_query!(sui_get_balance_sui, sui);
-balance_query!(sui_get_balance_token, sui);
-transfer_update!(sui_transfer_sui, sui);
-transfer_update!(sui_transfer_token, sui);
+#[ic_cdk::update]
+async fn ton_get_balance_ton(req: BalanceRequest) -> WalletResult<BalanceResponse> {
+    ton::get_balance(req).await
+}
+
+#[ic_cdk::update]
+async fn ton_get_balance_jetton(req: BalanceRequest) -> WalletResult<BalanceResponse> {
+    ton::get_balance(req).await
+}
+#[ic_cdk::update]
+async fn ton_transfer_ton(req: TransferRequest) -> WalletResult<TransferResponse> {
+    ensure_not_paused()?;
+    ton::transfer(req).await
+}
+
+#[ic_cdk::update]
+async fn ton_transfer_jetton(req: TransferRequest) -> WalletResult<TransferResponse> {
+    ensure_not_paused()?;
+    ton::transfer(req).await
+}
+
+#[ic_cdk::update]
+async fn near_get_balance_near(req: BalanceRequest) -> WalletResult<BalanceResponse> {
+    near::get_balance(req).await
+}
+#[ic_cdk::update]
+async fn near_get_balance_nep141(req: BalanceRequest) -> WalletResult<BalanceResponse> {
+    near::get_balance(req).await
+}
+#[ic_cdk::update]
+async fn near_transfer_near(req: TransferRequest) -> WalletResult<TransferResponse> {
+    ensure_not_paused()?;
+    near::transfer(req).await
+}
+#[ic_cdk::update]
+async fn near_transfer_nep141(req: TransferRequest) -> WalletResult<TransferResponse> {
+    ensure_not_paused()?;
+    near::transfer(req).await
+}
+
+#[ic_cdk::update]
+async fn aptos_get_balance_apt(req: BalanceRequest) -> WalletResult<BalanceResponse> {
+    aptos::get_balance(req).await
+}
+#[ic_cdk::update]
+async fn aptos_get_balance_token(req: BalanceRequest) -> WalletResult<BalanceResponse> {
+    aptos::get_balance(req).await
+}
+#[ic_cdk::update]
+async fn aptos_transfer_apt(req: TransferRequest) -> WalletResult<TransferResponse> {
+    ensure_not_paused()?;
+    aptos::transfer(req).await
+}
+#[ic_cdk::update]
+async fn aptos_transfer_token(req: TransferRequest) -> WalletResult<TransferResponse> {
+    ensure_not_paused()?;
+    aptos::transfer(req).await
+}
+
+#[ic_cdk::update]
+async fn sui_get_balance_sui(req: BalanceRequest) -> WalletResult<BalanceResponse> {
+    sui::get_balance(req).await
+}
+#[ic_cdk::update]
+async fn sui_get_balance_token(req: BalanceRequest) -> WalletResult<BalanceResponse> {
+    sui::get_balance(req).await
+}
+#[ic_cdk::update]
+async fn sui_transfer_sui(req: TransferRequest) -> WalletResult<TransferResponse> {
+    ensure_not_paused()?;
+    sui::transfer(req).await
+}
+#[ic_cdk::update]
+async fn sui_transfer_token(req: TransferRequest) -> WalletResult<TransferResponse> {
+    ensure_not_paused()?;
+    sui::transfer(req).await
+}
 
 #[ic_cdk::pre_upgrade]
 fn pre_upgrade() {

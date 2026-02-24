@@ -1,29 +1,41 @@
 use crate::config;
 use crate::error::{WalletError, WalletResult};
-use crate::types::AddressRequest;
+use crate::types::AddressResponse;
 use ic_cdk::management_canister::{
     self, EcdsaCurve, EcdsaKeyId, EcdsaPublicKeyArgs, SchnorrAlgorithm, SchnorrKeyId,
     SchnorrPublicKeyArgs,
 };
+use k256::elliptic_curve::sec1::ToEncodedPoint;
+use k256::PublicKey;
+use sha3::{Digest, Keccak256};
 
 const BECH32M_CONST: u32 = 0x2bc8_30a3;
 const BECH32_CHARSET: &[u8; 32] = b"qpzry9x8gf2tvdw0s3jn54khce6mua7l";
 const BASE58_ALPHABET: &[u8; 58] = b"123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
 
-#[derive(Clone, Debug)]
-pub struct ResolvedAddressRequest {
-    pub index: u32,
-    pub account_tag: Option<String>,
-}
+pub async fn derive_evm_address(network: &str) -> WalletResult<AddressResponse> {
+    let (public_key, key_name) = fetch_ecdsa_secp256k1_public_key().await?;
 
-pub fn resolve_address_request(
-    _network: &str,
-    req: AddressRequest,
-) -> WalletResult<ResolvedAddressRequest> {
-    let index = req.index.unwrap_or(0);
-    let account_tag = normalize_account_tag(req.account_tag)?;
+    let secp_pubkey = PublicKey::from_sec1_bytes(&public_key)
+        .map_err(|err| WalletError::Internal(format!("invalid {network} public key: {err}")))?;
+    let uncompressed = secp_pubkey.to_encoded_point(false);
+    let uncompressed_bytes = uncompressed.as_bytes();
+    if uncompressed_bytes.len() != 65 || uncompressed_bytes[0] != 0x04 {
+        return Err(WalletError::Internal(
+            "unexpected secp256k1 uncompressed public key length".into(),
+        ));
+    }
 
-    Ok(ResolvedAddressRequest { index, account_tag })
+    let hash = Keccak256::digest(&uncompressed_bytes[1..]);
+    let addr_hex = hex_encode(&hash[12..]);
+
+    Ok(AddressResponse {
+        network: network.to_string(),
+        address: format!("0x{addr_hex}"),
+        public_key_hex: hex_encode(&public_key),
+        key_name,
+        message: Some("Derived from management canister ECDSA public key".into()),
+    })
 }
 
 pub async fn fetch_ecdsa_secp256k1_public_key() -> WalletResult<(Vec<u8>, String)> {
@@ -120,22 +132,6 @@ pub fn encode_segwit_v1_bech32m(hrp: &str, witness_program: &[u8]) -> WalletResu
     let mut data = vec![1u8];
     data.extend(convert_bits(witness_program, 8, 5, true)?);
     bech32m_encode(hrp, &data)
-}
-
-fn normalize_account_tag(account_tag: Option<String>) -> WalletResult<Option<String>> {
-    let Some(tag) = account_tag else {
-        return Ok(None);
-    };
-    let normalized = tag.trim().to_string();
-    if normalized.is_empty() {
-        return Ok(None);
-    }
-    if normalized.len() > 64 {
-        return Err(WalletError::invalid_input(
-            "account_tag is too long (max 64 chars)",
-        ));
-    }
-    Ok(Some(normalized))
 }
 
 fn convert_bits(data: &[u8], from_bits: u32, to_bits: u32, pad: bool) -> WalletResult<Vec<u8>> {

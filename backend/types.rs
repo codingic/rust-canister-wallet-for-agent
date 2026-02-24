@@ -24,20 +24,12 @@ pub mod networks {
     pub const SUI_MAINNET: &str = "sui-mainnet";
 }
 
-#[derive(CandidType, Deserialize, Clone, Debug, Default)]
-pub struct AddressRequest {
-    pub index: Option<u32>,
-    pub account_tag: Option<String>,
-}
-
 #[derive(CandidType, Deserialize, Clone, Debug)]
 pub struct AddressResponse {
     pub network: Network,
     pub address: String,
     pub public_key_hex: String,
     pub key_name: String,
-    pub index: u32,
-    pub account_tag: Option<String>,
     pub message: Option<String>,
 }
 
@@ -106,6 +98,8 @@ pub struct NetworkModuleStatus {
 pub struct WalletNetworkInfoResponse {
     pub id: Network,
     pub primary_symbol: String,
+    pub address_family: String,
+    pub shared_address_group: String,
     pub supports_send: bool,
     pub supports_balance: bool,
     pub default_rpc_url: Option<String>,

@@ -1,27 +1,20 @@
 use candid::Nat;
-use ic_cdk::management_canister::{
-    self, HttpHeader, HttpMethod, HttpRequestArgs, SchnorrAlgorithm, SchnorrKeyId,
-    SignWithSchnorrArgs,
-};
-use num_bigint::BigUint;
+use ic_cdk::management_canister::{self, SchnorrAlgorithm, SchnorrKeyId, SignWithSchnorrArgs};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
 use crate::addressing;
 use crate::config;
 use crate::error::{WalletError, WalletResult};
+use crate::sdk::sol_tx;
 use crate::types::{
-    self, AddressRequest, AddressResponse, BalanceRequest, BalanceResponse, TransferRequest,
-    TransferResponse,
+    self, AddressResponse, BalanceRequest, BalanceResponse, TransferRequest, TransferResponse,
 };
 
 const NETWORK_NAME: &str = types::networks::SOLANA;
 const SOL_DECIMALS: u8 = 9;
-const SOLANA_SYSTEM_PROGRAM_ID: [u8; 32] = [0u8; 32];
-const SPL_TOKEN_PROGRAM_ID_BASE58: &str = "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA";
 const BASE64_ALPHABET: &[u8; 64] =
     b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-const BASE58_ALPHABET: &[u8; 58] = b"123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
 
 #[derive(Serialize)]
 struct SolanaJsonRpcRequest {
@@ -43,15 +36,11 @@ struct SolanaJsonRpcError {
     message: String,
 }
 
-pub async fn request_address(req: AddressRequest) -> WalletResult<AddressResponse> {
-    request_address_for_network(NETWORK_NAME, req).await
+pub async fn request_address() -> WalletResult<AddressResponse> {
+    request_address_for_network(NETWORK_NAME).await
 }
 
-pub async fn request_address_for_network(
-    network_name: &str,
-    req: AddressRequest,
-) -> WalletResult<AddressResponse> {
-    let resolved = addressing::resolve_address_request(network_name, req)?;
+pub async fn request_address_for_network(network_name: &str) -> WalletResult<AddressResponse> {
     let (public_key, key_name) = addressing::fetch_schnorr_public_key(
         ic_cdk::management_canister::SchnorrAlgorithm::Ed25519,
     )
@@ -69,8 +58,6 @@ pub async fn request_address_for_network(
         address: addressing::base58_encode(&public_key),
         public_key_hex: addressing::hex_encode(&public_key),
         key_name,
-        index: resolved.index,
-        account_tag: resolved.account_tag,
         message: Some("Derived from management canister Schnorr(ed25519) public key".into()),
     })
 }
@@ -84,7 +71,12 @@ pub async fn get_balance_for_network(
     req: BalanceRequest,
 ) -> WalletResult<BalanceResponse> {
     validate_account(&req.account)?;
-    if req.token.as_deref().map(str::trim).is_some_and(|t| !t.is_empty()) {
+    if req
+        .token
+        .as_deref()
+        .map(str::trim)
+        .is_some_and(|t| !t.is_empty())
+    {
         return Ok(BalanceResponse {
             network: network_name.to_string(),
             account: req.account,
@@ -124,10 +116,6 @@ pub async fn get_balance_for_network(
     })
 }
 
-pub fn transfer(req: TransferRequest) -> WalletResult<TransferResponse> {
-    transfer_for_network(NETWORK_NAME, req)
-}
-
 pub async fn transfer_sol(req: TransferRequest) -> WalletResult<TransferResponse> {
     transfer_sol_for_network(NETWORK_NAME, req).await
 }
@@ -141,7 +129,12 @@ pub async fn transfer_sol_for_network(
     req: TransferRequest,
 ) -> WalletResult<TransferResponse> {
     validate_transfer(&req)?;
-    if req.token.as_deref().map(str::trim).is_some_and(|t| !t.is_empty()) {
+    if req
+        .token
+        .as_deref()
+        .map(str::trim)
+        .is_some_and(|t| !t.is_empty())
+    {
         return Err(WalletError::invalid_input(
             "native SOL transfer does not accept token parameter",
         ));
@@ -176,7 +169,12 @@ pub async fn transfer_sol_for_network(
 
     let to_pubkey = decode_solana_pubkey(&req.to)?;
     let recent_blockhash = fetch_recent_blockhash(network_name).await?;
-    let message = encode_system_transfer_message(&from_pubkey, &to_pubkey, &recent_blockhash, amount_lamports);
+    let message = encode_system_transfer_message(
+        &from_pubkey,
+        &to_pubkey,
+        &recent_blockhash,
+        amount_lamports,
+    );
     let signature = sign_solana_message(&message).await?;
     if signature.len() != 64 {
         return Err(WalletError::Internal(format!(
@@ -235,18 +233,29 @@ pub async fn transfer_spl_for_network(
         }
     }
 
-    let source_token_account = fetch_token_account_for_owner(network_name, &owner_pubkey, &mint).await?;
-    let dest_token_account =
-        fetch_token_account_for_owner(network_name, &destination_owner, &mint).await?;
+    let source_token_account =
+        fetch_token_account_for_owner(network_name, &owner_pubkey, &mint).await?;
+    let (dest_token_account, create_destination_ata) =
+        match fetch_token_account_for_owner_optional(network_name, &destination_owner, &mint)
+            .await?
+        {
+            Some(account) => (account, false),
+            None => (
+                derive_associated_token_address(&destination_owner, &mint)?,
+                true,
+            ),
+        };
     let recent_blockhash = fetch_recent_blockhash(network_name).await?;
     let message = encode_spl_transfer_checked_message(
         &owner_pubkey,
         &source_token_account,
         &dest_token_account,
+        &destination_owner,
         &mint,
         &recent_blockhash,
         amount_raw,
         amount_decimals,
+        create_destination_ata,
     )?;
     let signature = sign_solana_message(&message).await?;
     if signature.len() != 64 {
@@ -263,21 +272,6 @@ pub async fn transfer_spl_for_network(
         accepted: true,
         tx_id: Some(tx_sig.clone()),
         message: format!("broadcasted SPL transfer via sendTransaction: {tx_sig}"),
-    })
-}
-
-pub fn transfer_for_network(
-    network_name: &str,
-    req: TransferRequest,
-) -> WalletResult<TransferResponse> {
-    validate_transfer(&req)?;
-    Ok(TransferResponse {
-        network: network_name.to_string(),
-        accepted: false,
-        tx_id: None,
-        message: format!(
-            "{network_name} transfer scaffold received request; signing/execution not implemented"
-        ),
     })
 }
 
@@ -309,7 +303,9 @@ async fn fetch_recent_blockhash(network_name: &str) -> WalletResult<[u8; 32]> {
         .get("value")
         .and_then(|v| v.get("blockhash"))
         .and_then(Value::as_str)
-        .ok_or_else(|| WalletError::Internal("solana rpc getLatestBlockhash missing blockhash".into()))?;
+        .ok_or_else(|| {
+            WalletError::Internal("solana rpc getLatestBlockhash missing blockhash".into())
+        })?;
     decode_solana_pubkey(blockhash)
 }
 
@@ -344,9 +340,9 @@ async fn send_raw_transaction(network_name: &str, raw_tx: &[u8]) -> WalletResult
         ]),
     )
     .await?;
-    let tx_sig = tx_sig_value
-        .as_str()
-        .ok_or_else(|| WalletError::Internal("solana rpc sendTransaction result is not string".into()))?;
+    let tx_sig = tx_sig_value.as_str().ok_or_else(|| {
+        WalletError::Internal("solana rpc sendTransaction result is not string".into())
+    })?;
     Ok(tx_sig.to_string())
 }
 
@@ -362,7 +358,9 @@ async fn fetch_spl_decimals(network_name: &str, mint: &[u8; 32]) -> WalletResult
         .get("value")
         .and_then(|v| v.get("decimals"))
         .and_then(Value::as_u64)
-        .ok_or_else(|| WalletError::Internal("solana rpc getTokenSupply missing decimals".into()))?;
+        .ok_or_else(|| {
+            WalletError::Internal("solana rpc getTokenSupply missing decimals".into())
+        })?;
     u8::try_from(decimals)
         .map_err(|_| WalletError::Internal("solana rpc token decimals out of range".into()))
 }
@@ -372,6 +370,18 @@ async fn fetch_token_account_for_owner(
     owner: &[u8; 32],
     mint: &[u8; 32],
 ) -> WalletResult<[u8; 32]> {
+    fetch_token_account_for_owner_optional(network_name, owner, mint)
+        .await?
+        .ok_or_else(|| {
+            WalletError::invalid_input("destination/source token account not found for this mint")
+        })
+}
+
+async fn fetch_token_account_for_owner_optional(
+    network_name: &str,
+    owner: &[u8; 32],
+    mint: &[u8; 32],
+) -> WalletResult<Option<[u8; 32]>> {
     let owner_b58 = addressing::base58_encode(owner);
     let mint_b58 = addressing::base58_encode(mint);
     let rpc_result = solana_rpc_call(
@@ -390,9 +400,11 @@ async fn fetch_token_account_for_owner(
         .and_then(Value::as_array)
         .and_then(|arr| arr.first())
         .and_then(|item| item.get("pubkey"))
-        .and_then(Value::as_str)
-        .ok_or_else(|| WalletError::invalid_input("destination/source token account not found for this mint"))?;
-    decode_solana_pubkey(first_pubkey)
+        .and_then(Value::as_str);
+    match first_pubkey {
+        Some(pubkey) => decode_solana_pubkey(pubkey).map(Some),
+        None => Ok(None),
+    }
 }
 
 async fn solana_rpc_call(
@@ -411,27 +423,7 @@ async fn solana_rpc_call(
     })
     .map_err(|err| WalletError::Internal(format!("serialize solana rpc request failed: {err}")))?;
 
-    let http_args = HttpRequestArgs {
-        url: rpc_url,
-        max_response_bytes: Some(32 * 1024),
-        method: HttpMethod::POST,
-        headers: vec![
-            HttpHeader {
-                name: "content-type".to_string(),
-                value: "application/json".to_string(),
-            },
-            HttpHeader {
-                name: "accept".to_string(),
-                value: "application/json".to_string(),
-            },
-        ],
-        body: Some(body),
-        transform: None,
-    };
-
-    let http_res = management_canister::http_request(&http_args)
-        .await
-        .map_err(|err| WalletError::Internal(format!("solana http outcall failed: {err}")))?;
+    let http_res = crate::outcall::post_json(rpc_url, body, 32 * 1024, "solana rpc").await?;
 
     if http_res.status != Nat::from(200u16) {
         let body_text = String::from_utf8_lossy(&http_res.body);
@@ -469,47 +461,7 @@ fn format_lamports(lamports: u64) -> String {
 }
 
 fn decode_solana_pubkey(value: &str) -> WalletResult<[u8; 32]> {
-    let bytes = base58_decode(value.trim())?;
-    bytes.try_into().map_err(|_| {
-        WalletError::invalid_input("solana pubkey/blockhash must decode to 32 bytes (base58)")
-    })
-}
-
-fn base58_decode(input: &str) -> WalletResult<Vec<u8>> {
-    if input.is_empty() {
-        return Err(WalletError::invalid_input("base58 string is required"));
-    }
-
-    let mut zeros = 0usize;
-    for ch in input.bytes() {
-        if ch == BASE58_ALPHABET[0] {
-            zeros += 1;
-        } else {
-            break;
-        }
-    }
-
-    let mut acc = BigUint::from(0u8);
-    for ch in input.bytes() {
-        let digit = base58_digit(ch).ok_or_else(|| WalletError::invalid_input("invalid base58 character"))?;
-        acc = acc * 58u8 + BigUint::from(digit);
-    }
-
-    let mut decoded = acc.to_bytes_be();
-    if zeros > 0 {
-        let mut prefixed = vec![0u8; zeros];
-        prefixed.append(&mut decoded);
-        Ok(prefixed)
-    } else {
-        Ok(decoded)
-    }
-}
-
-fn base58_digit(ch: u8) -> Option<u8> {
-    BASE58_ALPHABET
-        .iter()
-        .position(|c| *c == ch)
-        .map(|i| i as u8)
+    sol_tx::decode_solana_pubkey(value)
 }
 
 fn encode_system_transfer_message(
@@ -518,103 +470,39 @@ fn encode_system_transfer_message(
     recent_blockhash: &[u8; 32],
     lamports: u64,
 ) -> Vec<u8> {
-    let mut out = Vec::with_capacity(256);
-
-    // Legacy message header
-    out.push(1); // num_required_signatures
-    out.push(0); // num_readonly_signed_accounts
-    out.push(1); // num_readonly_unsigned_accounts (system program)
-
-    // account keys: payer, recipient, system program
-    encode_shortvec_len(3, &mut out);
-    out.extend_from_slice(from_pubkey);
-    out.extend_from_slice(to_pubkey);
-    out.extend_from_slice(&SOLANA_SYSTEM_PROGRAM_ID);
-
-    // recent blockhash
-    out.extend_from_slice(recent_blockhash);
-
-    // instructions vec len = 1
-    encode_shortvec_len(1, &mut out);
-
-    // system_program::transfer instruction
-    out.push(2); // program_id_index (system program)
-    encode_shortvec_len(2, &mut out); // account indices len
-    out.push(0); // from
-    out.push(1); // to
-
-    let mut data = Vec::with_capacity(12);
-    data.extend_from_slice(&2u32.to_le_bytes()); // SystemInstruction::Transfer
-    data.extend_from_slice(&lamports.to_le_bytes());
-    encode_shortvec_len(data.len(), &mut out);
-    out.extend_from_slice(&data);
-
-    out
+    sol_tx::encode_system_transfer_message(from_pubkey, to_pubkey, recent_blockhash, lamports)
 }
 
 fn encode_signed_transaction(signature: &[u8], message: &[u8]) -> Vec<u8> {
-    let mut out = Vec::with_capacity(1 + signature.len() + message.len());
-    encode_shortvec_len(1, &mut out);
-    out.extend_from_slice(signature);
-    out.extend_from_slice(message);
-    out
+    sol_tx::encode_signed_transaction(signature, message)
 }
 
 fn encode_spl_transfer_checked_message(
     owner_pubkey: &[u8; 32],
     source_token_account: &[u8; 32],
     dest_token_account: &[u8; 32],
+    destination_owner: &[u8; 32],
     mint: &[u8; 32],
     recent_blockhash: &[u8; 32],
     amount_raw: u64,
     decimals: u8,
+    create_destination_ata: bool,
 ) -> WalletResult<Vec<u8>> {
-    let token_program_id = decode_solana_pubkey(SPL_TOKEN_PROGRAM_ID_BASE58)?;
-    let mut out = Vec::with_capacity(320);
-
-    // Legacy message header
-    out.push(1); // num_required_signatures
-    out.push(0); // num_readonly_signed_accounts
-    out.push(2); // readonly unsigned: mint + token program
-
-    // account keys: owner(payer/authority), source token acct, dest token acct, mint, token program
-    encode_shortvec_len(5, &mut out);
-    out.extend_from_slice(owner_pubkey);
-    out.extend_from_slice(source_token_account);
-    out.extend_from_slice(dest_token_account);
-    out.extend_from_slice(mint);
-    out.extend_from_slice(&token_program_id);
-
-    out.extend_from_slice(recent_blockhash);
-
-    encode_shortvec_len(1, &mut out); // instruction count
-    out.push(4); // program_id_index = token program
-    encode_shortvec_len(4, &mut out); // accounts len
-    out.push(1); // source
-    out.push(3); // mint
-    out.push(2); // destination
-    out.push(0); // authority
-
-    let mut data = Vec::with_capacity(10);
-    data.push(12); // TokenInstruction::TransferChecked
-    data.extend_from_slice(&amount_raw.to_le_bytes());
-    data.push(decimals);
-    encode_shortvec_len(data.len(), &mut out);
-    out.extend_from_slice(&data);
-    Ok(out)
+    sol_tx::encode_spl_transfer_checked_message(
+        owner_pubkey,
+        source_token_account,
+        dest_token_account,
+        destination_owner,
+        mint,
+        recent_blockhash,
+        amount_raw,
+        decimals,
+        create_destination_ata,
+    )
 }
 
-fn encode_shortvec_len(mut value: usize, out: &mut Vec<u8>) {
-    loop {
-        let mut elem = (value & 0x7f) as u8;
-        value >>= 7;
-        if value == 0 {
-            out.push(elem);
-            break;
-        }
-        elem |= 0x80;
-        out.push(elem);
-    }
+fn derive_associated_token_address(owner: &[u8; 32], mint: &[u8; 32]) -> WalletResult<[u8; 32]> {
+    sol_tx::derive_associated_token_address(owner, mint)
 }
 
 fn parse_decimal_lamports(value: &str) -> WalletResult<u64> {

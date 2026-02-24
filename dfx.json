@@ -1,5 +1,15 @@
 {
   "canisters": {
+    "ledger": {
+      "type": "custom",
+      "candid": "tool/ledger_assets/ledger-canister.wasm.gz.did",
+      "wasm": "tool/ledger_assets/ledger-canister.wasm.gz"
+    },
+    "chat_ledger": {
+      "type": "custom",
+      "candid": "tool/ledger_assets/ledger-canister.wasm.gz.did",
+      "wasm": "tool/ledger_assets/ledger-canister.wasm.gz"
+    },
     "backend": {
       "candid": "backend/backend.did",
       "type": "custom",

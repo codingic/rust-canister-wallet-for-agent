@@ -52,8 +52,12 @@ pub fn configured_explorer(network: &str) -> Option<ExplorerConfig> {
         }),
         networks::OKX => Some(ExplorerConfig {
             network: networks::OKX,
-            address_url_template: "https://www.oklink.com/oktc/address/{address}",
-            token_url_template: Some("https://www.oklink.com/oktc/token/{token}?tab=holders"),
+            //https://www.oklink.com/zh-hans/x-layer/address/0xa1d2c4533d867ce4623681f68df84d9cad73cb6b
+            //https://www.oklink.com/zh-hans/x-layer/tx/0x35c460a65ade91b5ecc8d89eaa4b67627aecfb66352bc46550f40fe29fab1aeb
+            address_url_template: "https://www.oklink.com/zh-hans/x-layer/address/{address}",
+            token_url_template: Some(
+                "https://www.oklink.com/zh-hans/x-layer/token/{token}?tab=holders",
+            ),
         }),
         networks::BITCOIN => Some(ExplorerConfig {
             network: networks::BITCOIN,

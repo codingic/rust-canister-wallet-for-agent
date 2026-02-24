@@ -91,7 +91,7 @@ const NETWORK_CONFIG = {
     nativeLabel: 'BTC 地址',
     tokenLabel: 'Token 地址',
     tokenSymbol: '',
-    showToken: false
+    showToken: true
   },
   solana: {
     title: 'Solana',
@@ -260,8 +260,6 @@ function parseAddressResponse(resp) {
     address: resp?.address || '',
     publicKeyHex: resp?.public_key_hex || '',
     keyName: resp?.key_name || '',
-    index: Number(resp?.index ?? 0),
-    accountTag: readOpt(resp?.account_tag) || '',
     message: readOpt(resp?.message) || ''
   };
 }
@@ -440,16 +438,21 @@ function getAddressMethodName(network) {
   const n = normalizeNetworkId(network);
   if (n === 'ethereum') return 'eth_request_address';
   if (n === 'sepolia') return 'sepolia_request_address';
-  if (n === 'base') return 'eth_request_address';
-  if (n === 'bsc') return 'eth_request_address';
-  if (n === 'arbitrum') return 'eth_request_address';
-  if (n === 'optimism') return 'eth_request_address';
-  if (n === 'avalanche') return 'eth_request_address';
-  if (n === 'okx') return 'eth_request_address';
-  if (n === 'polygon') return 'eth_request_address';
+  if (n === 'base') return 'base_request_address';
+  if (n === 'bsc') return 'bsc_request_address';
+  if (n === 'arbitrum') return 'arb_request_address';
+  if (n === 'optimism') return 'op_request_address';
+  if (n === 'avalanche') return 'avax_request_address';
+  if (n === 'okx') return 'okb_request_address';
+  if (n === 'polygon') return 'polygon_request_address';
   if (n === 'bitcoin') return 'btc_request_address';
   if (n === 'solana') return 'sol_request_address';
   if (n === 'solana-testnet') return 'solana_testnet_request_address';
+  if (n === 'tron') return 'trx_request_address';
+  if (n === 'ton-mainnet') return 'ton_request_address';
+  if (n === 'near-mainnet') return 'near_request_address';
+  if (n === 'aptos-mainnet') return 'aptos_request_address';
+  if (n === 'sui-mainnet') return 'sui_request_address';
   return null;
 }
 
@@ -463,7 +466,7 @@ async function queryRequestAddress(actor, network) {
 
   let result;
   try {
-    result = await method({ index: [], account_tag: [] });
+    result = await method();
   } catch (err) {
     return {
       ok: false,
@@ -583,6 +586,11 @@ export default function App() {
   const [tokenTransferTo, setTokenTransferTo] = useState('');
   const [tokenTransferAmount, setTokenTransferAmount] = useState('');
   const [isTokenSending, setIsTokenSending] = useState(false);
+  const [detailBalanceState, setDetailBalanceState] = useState({
+    phase: 'idle',
+    data: null,
+    error: ''
+  });
 
   const selectedConfig =
     NETWORK_CONFIG[selectedNetwork] || fallbackNetworkConfig(selectedNetwork);
@@ -599,6 +607,7 @@ export default function App() {
     setTokenDetailAddress('');
     setTokenTransferTo('');
     setTokenTransferAmount('');
+    setDetailBalanceState({ phase: 'idle', data: null, error: '' });
     setNativeBalanceState({ phase: 'idle', data: null, error: '' });
     setTokenBalanceState({ phase: 'idle', data: null, error: '' });
     setStatusText(`已切换到 ${selectedConfig.title}`);
@@ -958,6 +967,37 @@ export default function App() {
     assetListItems.find((item) =>
       item.kind === 'native' ? tokenDetailAddress === '__native__' : item.tokenAddress === tokenDetailAddress
     ) || null;
+  const detailTokenRowBalance =
+    detailAsset && detailAsset.kind === 'token'
+      ? tokenRowBalances[detailAsset.tokenAddress] || null
+      : null;
+  const detailTokenBalanceValue =
+    detailTokenRowBalance?.phase === 'loading'
+      ? '查询中...'
+      : detailTokenRowBalance?.phase === 'error'
+        ? '查询失败'
+        : detailTokenRowBalance?.amount || tokenBalanceValue;
+  const detailTokenBalanceMeta =
+    detailTokenRowBalance?.phase === 'error'
+      ? detailTokenRowBalance.error
+      : detailTokenRowBalance?.message ||
+        (detailTokenRowBalance?.pending ? 'pending=true' : tokenBalanceMeta);
+  const detailBalanceValue =
+    detailBalanceState.phase === 'loading'
+      ? '查询中...'
+      : detailBalanceState.phase === 'error'
+        ? '查询失败'
+        : detailBalanceState.data?.amount ||
+          (detailAsset?.kind === 'native' ? nativeBalanceValue : detailTokenBalanceValue);
+  const detailBalanceMeta =
+    detailBalanceState.phase === 'error'
+      ? detailBalanceState.error
+      : detailBalanceState.data?.message ||
+        (detailBalanceState.data?.pending
+          ? '后端返回 pending=true'
+          : detailAsset?.kind === 'native'
+            ? nativeBalanceMeta
+            : detailTokenBalanceMeta);
 
   const tokenListCount = assetListItems.length;
   const tokenVisibleRows = Math.max(1, Math.ceil(TOKEN_VLIST_HEIGHT / TOKEN_VLIST_ROW_HEIGHT));
@@ -1054,6 +1094,78 @@ export default function App() {
     };
   }, [selectedConfig.showToken, selectedNetwork, nativeAddressInput, visibleTokenAddressesKey]);
 
+  useEffect(() => {
+    let cancelled = false;
+
+    (async () => {
+      if (!detailAsset) {
+        setDetailBalanceState({ phase: 'idle', data: null, error: '' });
+        return;
+      }
+
+      const account = nativeAddressInput.trim();
+      if (!account) {
+        setDetailBalanceState({ phase: 'error', data: null, error: '当前钱包地址未就绪' });
+        return;
+      }
+
+      let actor = null;
+      try {
+        actor = await loadBackendActor();
+      } catch {
+        actor = null;
+      }
+      if (!actor || cancelled) {
+        if (!cancelled) {
+          setDetailBalanceState({
+            phase: 'error',
+            data: null,
+            error: '前端未连接到 backend actor'
+          });
+        }
+        return;
+      }
+
+      setDetailBalanceState({ phase: 'loading', data: null, error: '' });
+      const token =
+        detailAsset.kind === 'token' ? String(detailAsset.tokenAddress || '').trim() : '';
+      const result = await queryBalance(actor, selectedNetwork, account, token);
+      if (cancelled) return;
+
+      if (result.ok) {
+        setDetailBalanceState({ phase: 'ok', data: result.data, error: '' });
+
+        if (detailAsset.kind === 'native') {
+          setNativeBalanceState({ phase: 'ok', data: result.data, error: '' });
+        } else if (token) {
+          setTokenBalanceState({ phase: 'ok', data: result.data, error: '' });
+          setTokenRowBalances((prev) => ({
+            ...prev,
+            [token]: {
+              phase: 'ok',
+              amount: result.data?.amount || '',
+              error: '',
+              pending: Boolean(result.data?.pending),
+              message: result.data?.message || ''
+            }
+          }));
+        }
+      } else {
+        setDetailBalanceState({ phase: 'error', data: null, error: result.error });
+        if (detailAsset.kind === 'token' && token) {
+          setTokenRowBalances((prev) => ({
+            ...prev,
+            [token]: { phase: 'error', amount: '', error: result.error || '查询失败' }
+          }));
+        }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [detailAsset?.kind, detailAsset?.tokenAddress, nativeAddressInput, selectedNetwork]);
+
   function openTokenDetail(asset) {
     if (!asset) return;
     setSelectedAssetRowKey(asset.rowKey);
@@ -1070,12 +1182,14 @@ export default function App() {
     }
     setTokenTransferTo('');
     setTokenTransferAmount('');
+    setDetailBalanceState({ phase: 'idle', data: null, error: '' });
   }
 
   function closeTokenDetail() {
     setTokenDetailAddress('');
     setTokenTransferTo('');
     setTokenTransferAmount('');
+    setDetailBalanceState({ phase: 'idle', data: null, error: '' });
   }
 
   async function handleTokenSendClick() {
@@ -1382,10 +1496,10 @@ export default function App() {
                     <div className="token-detail-stat token-detail-stat--balance">
                       <div className="asset-card__label">余额</div>
                       <div className="mono-block token-detail-stat__balance">
-                        {detailAsset.kind === 'native' ? nativeBalanceValue : tokenBalanceValue}
+                        {detailBalanceValue}
                       </div>
                       <div className="asset-card__sub">
-                        {detailAsset.kind === 'native' ? nativeBalanceMeta : tokenBalanceMeta}
+                        {detailBalanceMeta}
                       </div>
                     </div>
                   </div>
