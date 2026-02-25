@@ -315,6 +315,7 @@ address_update!(optimism_request_address, ethereum);
 address_update!(avalanche_request_address, ethereum);
 address_update!(okx_request_address, ethereum);
 address_update!(polygon_request_address, ethereum);
+address_update!(internet_computer_request_address, internet_computer);
 address_update!(sepolia_request_address, sepolia);
 address_update!(solana_request_address, solana);
 address_update!(solana_testnet_request_address, solana_testnet);

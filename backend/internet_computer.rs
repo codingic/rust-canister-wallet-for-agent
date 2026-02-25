@@ -6,12 +6,26 @@ use serde::Deserialize;
 use crate::config;
 use crate::error::{WalletError, WalletResult};
 use crate::types::{
-    self, BalanceRequest, BalanceResponse, ConfiguredTokenResponse, TransferRequest,
-    TransferResponse,
+    self, AddressResponse, BalanceRequest, BalanceResponse, ConfiguredTokenResponse,
+    TransferRequest, TransferResponse,
 };
 
 const NETWORK_NAME: &str = types::networks::INTERNET_COMPUTER;
 const ICP_DECIMALS: u8 = 8;
+
+pub async fn request_address() -> WalletResult<AddressResponse> {
+    let principal = current_canister_principal();
+    Ok(AddressResponse {
+        network: NETWORK_NAME.to_string(),
+        address: principal.to_text(),
+        public_key_hex: String::new(),
+        key_name: "canister_principal".to_string(),
+        message: Some(
+            "ICP/ICRC uses the backend canister principal as the default managed owner address"
+                .to_string(),
+        ),
+    })
+}
 
 #[derive(CandidType, Deserialize, Clone, Debug)]
 struct IcrcAccount {

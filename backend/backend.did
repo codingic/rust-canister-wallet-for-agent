@@ -131,6 +131,7 @@ service : () -> {
   internet_computer_get_balance_icrc : (BalanceRequest) -> (
       Result_1,
     ) composite_query;
+  internet_computer_request_address : () -> (Result_2);
   internet_computer_transfer_icp : (TransferRequest) -> (Result_3);
   internet_computer_transfer_icrc : (TransferRequest) -> (Result_3);
   is_paused : () -> (bool) query;

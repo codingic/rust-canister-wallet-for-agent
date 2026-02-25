@@ -1,4 +1,4 @@
-# canisterwalletforagent
+# canister-wallet-for-agent
 
 一个用 Rust 编写的 ICP canister 钱包后端，面向 AI Agent 提供多链资产地址申请、余额查询与转账接口；前端为 React 控制台页面。
 
