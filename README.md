@@ -101,6 +101,7 @@ flowchart LR
   - `polygon_request_address`
 - 其他链：
   - `bitcoin_request_address`（Taproot / `bc1...`）
+  - `internet_computer_request_address`（返回后端 canister principal，作为 ICP/ICRC 默认托管地址）
   - `solana_request_address`
   - `solana_testnet_request_address`
   - `tron_request_address`
@@ -108,7 +109,7 @@ flowchart LR
   - `near_mainnet_request_address`
   - `aptos_mainnet_request_address`
   - `sui_mainnet_request_address`
-- `internet_computer`：前端直接使用后端 canister id / principal（不需要 `request_address`）
+- `internet_computer`：也支持统一地址接口 `internet_computer_request_address()`，便于 agent 走统一流程
 
 地址派生规则（当前）：
 
