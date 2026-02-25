@@ -13,7 +13,7 @@
 ```mermaid
 flowchart LR
     UI["React Frontend (`frontend/src/App.jsx`)"] --> API["Canister API Layer (`backend/api.rs`)"]
-    API --> CHAINS["Chain Modules (`backend/chains.rs` -> `btc.rs` / `near.rs` / `ton.rs` / ... )"]
+    API --> CHAINS["Chain Modules (`backend/chains.rs` -> `bitcoin.rs` / `near_mainnet.rs` / `ton_mainnet.rs` / ... )"]
     API --> CONFIG["Config Modules (`backend/config/*`)"]
     API --> STATE["State & Upgrade (`backend/state.rs`)"]
 
@@ -35,6 +35,7 @@ flowchart LR
 - `backend/outcall.rs`：统一 HTTP outcall 入口（所有外部 RPC 都从这里走）
 - `backend/config/*`：RPC、token 列表、浏览器链接配置（前端与后端共用）
 - `backend/addressing.rs`：管理 canister 公钥获取、地址编码、通用派生/格式化工具
+- `skills/canisterwallet-js-agent/SKILL.md`：给 JS/TS agent 的调用技能说明（接口命名、Actor 初始化、配置 API）
 
 ## 功能概览（当前）
 
@@ -45,6 +46,7 @@ flowchart LR
 - `backend/config/*`：RPC、Token 列表、区块浏览器配置（前端通过接口读取）
 - `backend/outcall.rs`：统一封装外部 RPC 的 `http_request`
 - `pre_upgrade` / `post_upgrade`：状态持久化
+- 启动/升级后会把静态配置加载到内存（RPC 默认配置、静态 TokenList），后续可通过 API 动态修改
 - `backend/backend.did`：Candid 接口导出
 
 ### 前端（React）
@@ -71,42 +73,42 @@ flowchart LR
 - `avalanche`
 - `okx`
 - `polygon`
-- `internet-computer`
+- `internet_computer`
 - `bitcoin`
 - `solana`
-- `solana-testnet`
+- `solana_testnet`
 - `tron`
-- `ton-mainnet`
-- `near-mainnet`
-- `aptos-mainnet`
-- `sui-mainnet`
+- `ton_mainnet`
+- `near_mainnet`
+- `aptos_mainnet`
+- `sui_mainnet`
 
-说明：接口名仍保留历史前缀（例如 `eth_*`、`sol_*`），但请求/响应里的 `network` 与前端网络选择统一为上述网络名字。
+说明：链相关接口已统一按“网络名字（下划线化）”命名，例如 `ethereum_get_balance_eth`、`solana_get_balance_sol`。
 
 ## 地址申请（真实实现）
 
 已实现真实地址申请（management canister 公钥，接口均为无参）：
 
 - EVM 系（同地址组，均复用 `eth::request_address()`）：
-  - `eth_request_address`
+  - `ethereum_request_address`
   - `sepolia_request_address`
   - `base_request_address`
   - `bsc_request_address`
-  - `arb_request_address`
-  - `op_request_address`
-  - `avax_request_address`
-  - `okb_request_address`
+  - `arbitrum_request_address`
+  - `optimism_request_address`
+  - `avalanche_request_address`
+  - `okx_request_address`
   - `polygon_request_address`
 - 其他链：
-  - `btc_request_address`（Taproot / `bc1...`）
-  - `sol_request_address`
+  - `bitcoin_request_address`（Taproot / `bc1...`）
+  - `solana_request_address`
   - `solana_testnet_request_address`
-  - `trx_request_address`
-  - `ton_request_address`
-  - `near_request_address`
-  - `aptos_request_address`
-  - `sui_request_address`
-- `internet-computer`：前端直接使用后端 canister id / principal（不需要 `request_address`）
+  - `tron_request_address`
+  - `ton_mainnet_request_address`
+  - `near_mainnet_request_address`
+  - `aptos_mainnet_request_address`
+  - `sui_mainnet_request_address`
+- `internet_computer`：前端直接使用后端 canister id / principal（不需要 `request_address`）
 
 地址派生规则（当前）：
 
@@ -166,12 +168,12 @@ flowchart LR
 - `SOL` 主币余额（RPC `getBalance`）
 - `SOL` 主币发送（`sign_with_schnorr(ed25519)` + `sendTransaction`）
 - `SPL` Token 发送（`TransferChecked`，自动创建对方 ATA 后再发送）
-- `SPL` Token 余额：当前仍未实现（接口已存在）
+- `SPL` Token 余额（真实，RPC `getTokenAccountsByOwner` + `getTokenAccountBalance`）
 
 支持网络：
 
 - `solana`
-- `solana-testnet`
+- `solana_testnet`
 
 ### TRON（真实余额 + 真实发送）
 
@@ -201,7 +203,7 @@ flowchart LR
 
 ## 未完成/限制（当前）
 
-- `solana` / `solana-testnet` 的 `SPL` 余额查询仍未实现（发送已实现）
+- `solana` / `solana_testnet` 的 `SPL` 余额查询已实现（基于 owner 查询 token account；无 token account 时返回 `0`）
 - 鉴权逻辑当前仍是 placeholder（后续会收紧到 owner/agent/policy）
 
 ## 重要后端配置接口（前端使用）
@@ -209,6 +211,64 @@ flowchart LR
 - `wallet_networks()`：网络列表与基础能力信息（主币符号、`address_family`、`shared_address_group`、能力位、默认 RPC）
 - `configured_tokens(network)`：当前网络 token 列表
 - `configured_explorer(network)`：区块浏览器 URL 模板（地址页 / token 页）
+
+### 运行时 RPC 配置（启动加载 + API 可修改）
+
+后端会在 `init/post_upgrade` 时把静态 RPC 默认配置加载到内存；链模块实际发起 RPC 请求时优先读取内存中的运行时配置。
+
+可用接口：
+
+- `configured_rpcs()`：查看当前运行时 RPC 配置列表
+- `set_configured_rpc({ network, rpc_url })`：设置/覆盖某个网络的 RPC
+- `remove_configured_rpc({ network })`：删除某个网络的运行时覆盖（回退到内置默认 RPC）
+
+说明：
+
+- `network` 使用统一网络名字（如下划线风格：`ethereum`、`solana_testnet`、`ton_mainnet`）
+- 配置修改后会立即影响后续余额查询/发送等真实链上请求（无需重启 canister）
+
+### 动态 Token List 管理（新增）
+
+后端支持通过 API 动态维护各链 token 列表（持久化到 canister state）：
+
+- `add_configured_token({ network, token_address })`
+  - 传入网络名和合约地址（或该链 token 标识）
+  - 后端会按网络自动去链上探测 metadata（至少 `decimals`，并尽可能获取 `symbol/name`）
+  - 探测成功后写入 canister 状态并返回标准化后的 token 信息
+- `remove_configured_token({ network, token_address })`
+  - 按网络名 + 合约地址删除（会对内做 tombstone，隐藏静态内置 token 或动态 token）
+
+`configured_tokens(network)` 现在返回：
+
+- 静态配置 token（`backend/config/token_list/*`）
+- 动态新增 token（API 添加）
+- 并应用删除 tombstone（从列表中隐藏）
+
+说明：
+
+- `network` 必须使用统一网络名字（如 `ethereum`、`solana`、`ton_mainnet`）
+- `token_address` 的含义按链类型不同：
+  - EVM / TRON：合约地址
+  - ICP：token ledger canister id（principal）
+  - Solana：SPL mint
+  - TON：Jetton master 地址
+  - NEAR：NEP-141 合约账号
+  - Aptos / Sui：Coin Type
+
+## JS Agent 技能（Skill）
+
+仓库内提供一个给其他 JS/TS Agent 使用本工程的技能文档：
+
+- `skills/canisterwallet-js-agent/SKILL.md`
+
+内容包括：
+
+- 使用 `src/declarations/backend` 创建 `@dfinity/agent` Actor
+- `Result`（`Ok/Err`）返回值解析模式
+- 基于 `wallet_networks()` 的 `shared_address_group` 做地址共享判断（例如 EVM 同地址）
+- 按网络名动态拼接地址/余额/转账方法名
+- 使用运行时配置接口 `configured_rpcs / set_configured_rpc / remove_configured_rpc`
+- 使用 TokenList 动态接口 `configured_tokens / add_configured_token / remove_configured_token`
 
 ## 构建与部署
 
@@ -251,3 +311,12 @@ dfx deploy frontend
 - 外部 HTTP RPC 统一从 `backend/outcall.rs` 走，便于后续加重试/transform/审计
 - 网络名统一使用 `types::networks::*` 常量
 - EVM 系网络共享地址组信息通过 `wallet_networks()` 对外暴露（供 agent 直接消费）
+
+icp 发送已测
+icrc1 token 发送已测
+
+eth 发送已测
+erc20 发送已测
+
+sol 发送已测
+sol-token 发送

@@ -10,7 +10,8 @@ use crate::config;
 use crate::error::{WalletError, WalletResult};
 use crate::sdk::{evm_tx, ton_tx};
 use crate::types::{
-    self, AddressResponse, BalanceRequest, BalanceResponse, TransferRequest, TransferResponse,
+    self, AddressResponse, BalanceRequest, BalanceResponse, ConfiguredTokenResponse,
+    TransferRequest, TransferResponse,
 };
 
 const NETWORK_NAME: &str = types::networks::TON_MAINNET;
@@ -184,6 +185,27 @@ pub async fn transfer(req: TransferRequest) -> WalletResult<TransferResponse> {
         accepted: true,
         tx_id,
         message,
+    })
+}
+
+pub async fn discover_jetton_token(token_address: &str) -> WalletResult<ConfiguredTokenResponse> {
+    let master = ton_tx::parse_ton_address(token_address)?;
+    let canonical = ton_tx::format_user_friendly_address(&master, false, false);
+    let decimals = resolve_jetton_decimals(&master).await.unwrap_or(9);
+    let (symbol, name) = fetch_jetton_name_symbol_from_v3(&master)
+        .await
+        .unwrap_or_else(|_| {
+            let suffix = canonical
+                .get(canonical.len().saturating_sub(6)..)
+                .unwrap_or(&canonical);
+            (format!("JET{}", suffix), format!("Jetton {}", suffix))
+        });
+    Ok(ConfiguredTokenResponse {
+        network: NETWORK_NAME.to_string(),
+        symbol,
+        name,
+        token_address: canonical,
+        decimals: u64::from(decimals),
     })
 }
 
@@ -422,6 +444,53 @@ async fn fetch_jetton_decimals_from_v3(
         }
     }
     Ok(None)
+}
+
+async fn fetch_jetton_name_symbol_from_v3(
+    jetton_master: &ton_tx::TonAddress,
+) -> WalletResult<(String, String)> {
+    let master_text = ton_tx::format_user_friendly_address(jetton_master, false, false);
+    let path = format!("/jetton/masters/{}", percent_encode(&master_text));
+    let payload = ton_v3_get_json(&path).await?;
+
+    let symbol = find_first_non_empty_string(
+        [
+            payload.get("metadata").and_then(|m| m.get("symbol")),
+            payload
+                .get("jetton_content")
+                .and_then(|m| m.get("data"))
+                .and_then(|m| m.get("symbol")),
+            payload.get("symbol"),
+        ]
+        .into_iter(),
+    )
+    .ok_or_else(|| WalletError::Internal("TON jetton metadata missing symbol".into()))?;
+
+    let name = find_first_non_empty_string(
+        [
+            payload.get("metadata").and_then(|m| m.get("name")),
+            payload
+                .get("jetton_content")
+                .and_then(|m| m.get("data"))
+                .and_then(|m| m.get("name")),
+            payload.get("name"),
+        ]
+        .into_iter(),
+    )
+    .unwrap_or_else(|| symbol.clone());
+
+    Ok((symbol, name))
+}
+
+fn find_first_non_empty_string<'a>(
+    values: impl Iterator<Item = Option<&'a Value>>,
+) -> Option<String> {
+    for value in values.flatten() {
+        if let Some(s) = value.as_str().map(str::trim).filter(|s| !s.is_empty()) {
+            return Some(s.to_string());
+        }
+    }
+    None
 }
 
 async fn sign_ton_hash(message_hash32: &[u8; 32]) -> WalletResult<Vec<u8>> {

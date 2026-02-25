@@ -112,7 +112,7 @@ pub fn configured_explorer(network: &str) -> Option<ExplorerConfig> {
 }
 
 fn normalize_config_network_name(network: &str) -> String {
-    network.trim().to_lowercase().replace('_', "-")
+    network.trim().to_lowercase().replace('-', "_")
 }
 
 #[cfg(test)]

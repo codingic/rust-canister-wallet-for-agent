@@ -10,7 +10,8 @@ use crate::config;
 use crate::error::{WalletError, WalletResult};
 use crate::sdk::evm_tx;
 use crate::types::{
-    self, AddressResponse, BalanceRequest, BalanceResponse, TransferRequest, TransferResponse,
+    self, AddressResponse, BalanceRequest, BalanceResponse, ConfiguredTokenResponse,
+    TransferRequest, TransferResponse,
 };
 
 const NETWORK_NAME: &str = types::networks::SUI_MAINNET;
@@ -194,6 +195,39 @@ pub async fn transfer(req: TransferRequest) -> WalletResult<TransferResponse> {
     })
 }
 
+pub async fn discover_coin_type_token(coin_type: &str) -> WalletResult<ConfiguredTokenResponse> {
+    let coin_type = coin_type.trim().to_string();
+    if coin_type.is_empty() {
+        return Err(WalletError::invalid_input("coin type is required"));
+    }
+    let v = fetch_sui_coin_metadata_json(&coin_type).await?;
+    let decimals = v
+        .get("decimals")
+        .and_then(|x| x.as_u64().and_then(|n| u8::try_from(n).ok()))
+        .ok_or_else(|| WalletError::Internal("Sui coin metadata missing decimals".into()))?;
+    let symbol = v
+        .get("symbol")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .ok_or_else(|| WalletError::Internal("Sui coin metadata missing symbol".into()))?
+        .to_string();
+    let name = v
+        .get("name")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(ToString::to_string)
+        .unwrap_or_else(|| symbol.clone());
+    Ok(ConfiguredTokenResponse {
+        network: NETWORK_NAME.to_string(),
+        symbol,
+        name,
+        token_address: coin_type,
+        decimals: u64::from(decimals),
+    })
+}
+
 struct ManagedSuiIdentity {
     address: String,
     pubkey: [u8; 32],
@@ -217,14 +251,18 @@ async fn fetch_managed_sui_identity() -> WalletResult<ManagedSuiIdentity> {
 }
 
 async fn fetch_sui_coin_decimals(coin_type: &str) -> WalletResult<u8> {
-    let v = sui_rpc_call(
-        "suix_getCoinMetadata",
-        Value::Array(vec![Value::String(coin_type.trim().to_string())]),
-    )
-    .await?;
+    let v = fetch_sui_coin_metadata_json(coin_type).await?;
     v.get("decimals")
         .and_then(|x| x.as_u64().and_then(|n| u8::try_from(n).ok()))
         .ok_or_else(|| WalletError::Internal("Sui coin metadata missing decimals".into()))
+}
+
+async fn fetch_sui_coin_metadata_json(coin_type: &str) -> WalletResult<Value> {
+    sui_rpc_call(
+        "suix_getCoinMetadata",
+        Value::Array(vec![Value::String(coin_type.trim().to_string())]),
+    )
+    .await
 }
 
 async fn fetch_sui_coin_ids(

@@ -403,9 +403,9 @@ async fn broadcast_raw_transaction(raw_tx_hex: &str) -> WalletResult<String> {
     btc_rpc_post_text("/tx", body, "text/plain").await
 }
 
-fn bitcoin_rpc_base_url() -> &'static str {
-    config::rpc_config::default_rpc_url(NETWORK_NAME)
-        .expect("bitcoin default rpc url must be configured")
+fn bitcoin_rpc_base_url() -> WalletResult<String> {
+    config::rpc_config::resolve_rpc_url(NETWORK_NAME, None)
+        .map_err(|err| WalletError::Internal(format!("bitcoin rpc url resolve failed: {err}")))
 }
 
 async fn btc_rpc_get_json<T>(path: &str) -> WalletResult<T>
@@ -413,7 +413,7 @@ where
     T: for<'de> Deserialize<'de>,
 {
     let http_res = crate::outcall::get_json(
-        format!("{}{}", bitcoin_rpc_base_url(), path),
+        format!("{}{}", bitcoin_rpc_base_url()?, path),
         512 * 1024,
         "btc rpc",
     )
@@ -434,7 +434,7 @@ where
 
 async fn btc_rpc_post_text(path: &str, body: Vec<u8>, content_type: &str) -> WalletResult<String> {
     let http_res = crate::outcall::post_text(
-        format!("{}{}", bitcoin_rpc_base_url(), path),
+        format!("{}{}", bitcoin_rpc_base_url()?, path),
         body,
         content_type,
         "text/plain",

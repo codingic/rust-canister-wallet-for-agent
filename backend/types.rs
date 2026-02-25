@@ -14,14 +14,14 @@ pub mod networks {
     pub const AVALANCHE: &str = "avalanche";
     pub const OKX: &str = "okx";
     pub const POLYGON: &str = "polygon";
-    pub const INTERNET_COMPUTER: &str = "internet-computer";
+    pub const INTERNET_COMPUTER: &str = "internet_computer";
     pub const SOLANA: &str = "solana";
-    pub const SOLANA_TESTNET: &str = "solana-testnet";
+    pub const SOLANA_TESTNET: &str = "solana_testnet";
     pub const TRON: &str = "tron";
-    pub const TON_MAINNET: &str = "ton-mainnet";
-    pub const NEAR_MAINNET: &str = "near-mainnet";
-    pub const APTOS_MAINNET: &str = "aptos-mainnet";
-    pub const SUI_MAINNET: &str = "sui-mainnet";
+    pub const TON_MAINNET: &str = "ton_mainnet";
+    pub const NEAR_MAINNET: &str = "near_mainnet";
+    pub const APTOS_MAINNET: &str = "aptos_mainnet";
+    pub const SUI_MAINNET: &str = "sui_mainnet";
 }
 
 #[derive(CandidType, Deserialize, Clone, Debug)]
@@ -40,6 +40,35 @@ pub struct ConfiguredTokenResponse {
     pub name: String,
     pub token_address: String,
     pub decimals: u64,
+}
+
+#[derive(CandidType, Deserialize, Clone, Debug)]
+pub struct AddConfiguredTokenRequest {
+    pub network: Network,
+    pub token_address: String,
+}
+
+#[derive(CandidType, Deserialize, Clone, Debug)]
+pub struct RemoveConfiguredTokenRequest {
+    pub network: Network,
+    pub token_address: String,
+}
+
+#[derive(CandidType, Deserialize, Clone, Debug)]
+pub struct ConfiguredRpcResponse {
+    pub network: Network,
+    pub rpc_url: String,
+}
+
+#[derive(CandidType, Deserialize, Clone, Debug)]
+pub struct SetConfiguredRpcRequest {
+    pub network: Network,
+    pub rpc_url: String,
+}
+
+#[derive(CandidType, Deserialize, Clone, Debug)]
+pub struct RemoveConfiguredRpcRequest {
+    pub network: Network,
 }
 
 #[derive(CandidType, Deserialize, Clone, Debug)]

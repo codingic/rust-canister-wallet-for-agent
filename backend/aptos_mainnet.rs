@@ -11,7 +11,8 @@ use crate::config;
 use crate::error::{WalletError, WalletResult};
 use crate::sdk::evm_tx;
 use crate::types::{
-    self, AddressResponse, BalanceRequest, BalanceResponse, TransferRequest, TransferResponse,
+    self, AddressResponse, BalanceRequest, BalanceResponse, ConfiguredTokenResponse,
+    TransferRequest, TransferResponse,
 };
 
 const NETWORK_NAME: &str = types::networks::APTOS_MAINNET;
@@ -187,6 +188,42 @@ pub async fn transfer(req: TransferRequest) -> WalletResult<TransferResponse> {
     })
 }
 
+pub async fn discover_coin_type_token(coin_type: &str) -> WalletResult<ConfiguredTokenResponse> {
+    let normalized = normalize_type_tag(coin_type);
+    if normalized.trim().is_empty() {
+        return Err(WalletError::invalid_input("coin type is required"));
+    }
+    let info = fetch_coin_info_json(&normalized).await?;
+    let data = info
+        .get("data")
+        .ok_or_else(|| WalletError::Internal("Aptos CoinInfo missing data".into()))?;
+    let decimals = data
+        .get("decimals")
+        .and_then(parse_u8_json)
+        .ok_or_else(|| WalletError::Internal("Aptos CoinInfo missing decimals".into()))?;
+    let symbol = data
+        .get("symbol")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .ok_or_else(|| WalletError::Internal("Aptos CoinInfo missing symbol".into()))?
+        .to_string();
+    let name = data
+        .get("name")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(ToString::to_string)
+        .unwrap_or_else(|| symbol.clone());
+    Ok(ConfiguredTokenResponse {
+        network: NETWORK_NAME.to_string(),
+        symbol,
+        name,
+        token_address: normalized,
+        decimals: u64::from(decimals),
+    })
+}
+
 struct ManagedAptosIdentity {
     address: String,
     pubkey: [u8; 32],
@@ -244,21 +281,25 @@ async fn fetch_coin_balance_raw(address: &str, coin_type: &str) -> WalletResult<
 }
 
 async fn fetch_coin_decimals(coin_type: &str) -> WalletResult<u8> {
+    let v = fetch_coin_info_json(coin_type).await?;
+    v.get("data")
+        .and_then(|d| d.get("decimals"))
+        .and_then(parse_u8_json)
+        .ok_or_else(|| WalletError::Internal("Aptos CoinInfo missing decimals".into()))
+}
+
+async fn fetch_coin_info_json(coin_type: &str) -> WalletResult<Value> {
     let normalized = normalize_type_tag(coin_type);
     let (owner, _) = normalized
         .split_once("::")
         .ok_or_else(|| WalletError::invalid_input("invalid Aptos coin type"))?;
     let resource_type = format!("0x1::coin::CoinInfo<{normalized}>");
-    let v = aptos_get_json(&format!(
+    aptos_get_json(&format!(
         "/accounts/{}/resource/{}",
         path_encode(owner),
         path_encode(&resource_type)
     ))
-    .await?;
-    v.get("data")
-        .and_then(|d| d.get("decimals"))
-        .and_then(parse_u8_json)
-        .ok_or_else(|| WalletError::Internal("Aptos CoinInfo missing decimals".into()))
+    .await
 }
 
 async fn sign_aptos_message(message: &[u8]) -> WalletResult<Vec<u8>> {

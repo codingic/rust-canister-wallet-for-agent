@@ -5,7 +5,10 @@ use serde::Deserialize;
 
 use crate::config;
 use crate::error::{WalletError, WalletResult};
-use crate::types::{self, BalanceRequest, BalanceResponse, TransferRequest, TransferResponse};
+use crate::types::{
+    self, BalanceRequest, BalanceResponse, ConfiguredTokenResponse, TransferRequest,
+    TransferResponse,
+};
 
 const NETWORK_NAME: &str = types::networks::INTERNET_COMPUTER;
 const ICP_DECIMALS: u8 = 8;
@@ -151,6 +154,20 @@ pub async fn transfer_icrc(req: TransferRequest) -> WalletResult<TransferRespons
     })
 }
 
+pub async fn discover_icrc_token(ledger_text: &str) -> WalletResult<ConfiguredTokenResponse> {
+    let ledger = parse_principal_text(ledger_text, "token ledger canister id")?;
+    let decimals = fetch_icrc_decimals(ledger).await?;
+    let symbol = fetch_icrc_symbol(ledger).await?;
+    let name = fetch_icrc_name(ledger).await?;
+    Ok(ConfiguredTokenResponse {
+        network: NETWORK_NAME.to_string(),
+        symbol,
+        name,
+        token_address: ledger.to_text(),
+        decimals: u64::from(decimals),
+    })
+}
+
 fn icp_ledger_principal() -> Principal {
     if config::app_config::default_icp_ledger_use_mainnet() {
         config::app_config::icp_ledger_mainnet_principal()
@@ -241,6 +258,26 @@ async fn fetch_icrc_decimals(ledger: Principal) -> WalletResult<u8> {
     let (value,): (u8,) = res
         .candid_tuple()
         .map_err(|err| WalletError::Internal(format!("icrc1_decimals decode failed: {err:?}")))?;
+    Ok(value)
+}
+
+async fn fetch_icrc_symbol(ledger: Principal) -> WalletResult<String> {
+    let res = Call::bounded_wait(ledger, "icrc1_symbol")
+        .await
+        .map_err(|err| WalletError::Internal(format!("icrc1_symbol failed: {err:?}")))?;
+    let (value,): (String,) = res
+        .candid_tuple()
+        .map_err(|err| WalletError::Internal(format!("icrc1_symbol decode failed: {err:?}")))?;
+    Ok(value)
+}
+
+async fn fetch_icrc_name(ledger: Principal) -> WalletResult<String> {
+    let res = Call::bounded_wait(ledger, "icrc1_name")
+        .await
+        .map_err(|err| WalletError::Internal(format!("icrc1_name failed: {err:?}")))?;
+    let (value,): (String,) = res
+        .candid_tuple()
+        .map_err(|err| WalletError::Internal(format!("icrc1_name decode failed: {err:?}")))?;
     Ok(value)
 }
 

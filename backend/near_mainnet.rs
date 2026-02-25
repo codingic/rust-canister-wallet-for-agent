@@ -9,7 +9,8 @@ use crate::config;
 use crate::error::{WalletError, WalletResult};
 use crate::sdk::evm_tx;
 use crate::types::{
-    self, AddressResponse, BalanceRequest, BalanceResponse, TransferRequest, TransferResponse,
+    self, AddressResponse, BalanceRequest, BalanceResponse, ConfiguredTokenResponse,
+    TransferRequest, TransferResponse,
 };
 
 const NETWORK_NAME: &str = types::networks::NEAR_MAINNET;
@@ -252,6 +253,44 @@ pub async fn transfer(req: TransferRequest) -> WalletResult<TransferResponse> {
     })
 }
 
+pub async fn discover_nep141_token(contract_id: &str) -> WalletResult<ConfiguredTokenResponse> {
+    let contract_id = contract_id.trim().to_lowercase();
+    if contract_id.is_empty() {
+        return Err(WalletError::invalid_input("token contract id is required"));
+    }
+    let metadata = fetch_nep141_metadata_json(&contract_id).await?;
+    let decimals = metadata
+        .get("decimals")
+        .and_then(|x| {
+            x.as_u64()
+                .and_then(|n| u8::try_from(n).ok())
+                .or_else(|| x.as_str()?.parse::<u8>().ok())
+        })
+        .ok_or_else(|| WalletError::Internal("NEAR ft_metadata missing decimals".into()))?;
+    let symbol = metadata
+        .get("symbol")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .ok_or_else(|| WalletError::Internal("NEAR ft_metadata missing symbol".into()))?
+        .to_string();
+    let name = metadata
+        .get("name")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(ToString::to_string)
+        .unwrap_or_else(|| symbol.clone());
+
+    Ok(ConfiguredTokenResponse {
+        network: NETWORK_NAME.to_string(),
+        symbol,
+        name,
+        token_address: contract_id,
+        decimals: u64::from(decimals),
+    })
+}
+
 struct NearManagedIdentity {
     account_id: String,
     near_public_key: String,
@@ -277,12 +316,7 @@ async fn fetch_managed_near_identity() -> WalletResult<NearManagedIdentity> {
 }
 
 async fn fetch_nep141_decimals(contract_id: &str) -> WalletResult<u8> {
-    let bytes = near_call_function(contract_id, "ft_metadata", json!({})).await?;
-    let text = String::from_utf8(bytes)
-        .map_err(|_| WalletError::Internal("NEAR ft_metadata returned non-utf8 bytes".into()))?;
-    let v: Value = serde_json::from_str(text.trim()).map_err(|err| {
-        WalletError::Internal(format!("NEAR ft_metadata json parse failed: {err}"))
-    })?;
+    let v = fetch_nep141_metadata_json(contract_id).await?;
     v.get("decimals")
         .and_then(|x| {
             x.as_u64()
@@ -290,6 +324,14 @@ async fn fetch_nep141_decimals(contract_id: &str) -> WalletResult<u8> {
                 .or_else(|| x.as_str()?.parse::<u8>().ok())
         })
         .ok_or_else(|| WalletError::Internal("NEAR ft_metadata missing decimals".into()))
+}
+
+async fn fetch_nep141_metadata_json(contract_id: &str) -> WalletResult<Value> {
+    let bytes = near_call_function(contract_id, "ft_metadata", json!({})).await?;
+    let text = String::from_utf8(bytes)
+        .map_err(|_| WalletError::Internal("NEAR ft_metadata returned non-utf8 bytes".into()))?;
+    serde_json::from_str(text.trim())
+        .map_err(|err| WalletError::Internal(format!("NEAR ft_metadata json parse failed: {err}")))
 }
 
 async fn near_call_function(

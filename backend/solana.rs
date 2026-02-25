@@ -8,7 +8,8 @@ use crate::config;
 use crate::error::{WalletError, WalletResult};
 use crate::sdk::sol_tx;
 use crate::types::{
-    self, AddressResponse, BalanceRequest, BalanceResponse, TransferRequest, TransferResponse,
+    self, AddressResponse, BalanceRequest, BalanceResponse, ConfiguredTokenResponse,
+    TransferRequest, TransferResponse,
 };
 
 const NETWORK_NAME: &str = types::networks::SOLANA;
@@ -71,21 +72,69 @@ pub async fn get_balance_for_network(
     req: BalanceRequest,
 ) -> WalletResult<BalanceResponse> {
     validate_account(&req.account)?;
-    if req
+    if let Some(token_text) = req
         .token
         .as_deref()
         .map(str::trim)
-        .is_some_and(|t| !t.is_empty())
+        .filter(|t| !t.is_empty())
     {
+        let owner = decode_solana_pubkey(&req.account)?;
+        let mint = decode_solana_pubkey(token_text)?;
+        let decimals = fetch_spl_decimals(network_name, &mint).await?;
+        let maybe_token_account =
+            fetch_token_account_for_owner_optional(network_name, &owner, &mint).await?;
+
+        let (amount, block_ref, message) = match maybe_token_account {
+            Some(token_account) => {
+                let token_account_b58 = addressing::base58_encode(&token_account);
+                let rpc_result = solana_rpc_call(
+                    network_name,
+                    "getTokenAccountBalance",
+                    json!([token_account_b58, { "commitment": "confirmed" }]),
+                )
+                .await?;
+                let slot = rpc_result
+                    .get("context")
+                    .and_then(|v| v.get("slot"))
+                    .and_then(Value::as_u64)
+                    .map(|s| s.to_string());
+                let value = rpc_result.get("value").ok_or_else(|| {
+                    WalletError::Internal("solana rpc getTokenAccountBalance missing value".into())
+                })?;
+                let amount_raw = value.get("amount").and_then(Value::as_str).ok_or_else(|| {
+                    WalletError::Internal("solana rpc getTokenAccountBalance missing amount".into())
+                })?;
+                let amount_u64 = amount_raw.parse::<u64>().map_err(|_| {
+                    WalletError::Internal(
+                        "solana rpc getTokenAccountBalance amount is not u64".into(),
+                    )
+                })?;
+
+                (
+                    Some(format_u64_units(amount_u64, decimals)),
+                    slot,
+                    Some(format!(
+                        "RPC getTokenAccountBalance ({})",
+                        token_account_b58
+                    )),
+                )
+            }
+            None => (
+                Some("0".to_string()),
+                None,
+                Some("RPC getTokenAccountsByOwner (no token account => balance 0)".to_string()),
+            ),
+        };
+
         return Ok(BalanceResponse {
             network: network_name.to_string(),
             account: req.account,
             token: req.token,
-            amount: None,
-            decimals: Some(SOL_DECIMALS),
-            block_ref: None,
-            pending: true,
-            message: Some("Solana SPL token balance query not implemented yet".to_string()),
+            amount,
+            decimals: Some(decimals),
+            block_ref,
+            pending: false,
+            message,
         });
     }
 
@@ -275,6 +324,31 @@ pub async fn transfer_spl_for_network(
     })
 }
 
+pub async fn discover_spl_token(
+    network_name: &str,
+    mint_text: &str,
+) -> WalletResult<ConfiguredTokenResponse> {
+    let mint = decode_solana_pubkey(mint_text)?;
+    let mint_b58 = addressing::base58_encode(&mint);
+    let decimals = fetch_spl_decimals(network_name, &mint).await?;
+    let static_match = config::token_list_config::configured_tokens(network_name)
+        .iter()
+        .find(|t| t.token_address.trim() == mint_b58);
+    let symbol = static_match
+        .map(|t| t.symbol.to_string())
+        .unwrap_or_else(|| format!("SPL{}", short_b58_suffix(&mint_b58)));
+    let name = static_match
+        .map(|t| t.name.to_string())
+        .unwrap_or_else(|| format!("SPL Token {}", short_b58_suffix(&mint_b58)));
+    Ok(ConfiguredTokenResponse {
+        network: network_name.to_string(),
+        symbol,
+        name,
+        token_address: mint_b58,
+        decimals: u64::from(decimals),
+    })
+}
+
 fn validate_account(account: &str) -> WalletResult<()> {
     if account.trim().is_empty() {
         return Err(WalletError::invalid_input("account is required"));
@@ -448,12 +522,20 @@ async fn solana_rpc_call(
 }
 
 fn format_lamports(lamports: u64) -> String {
-    let whole = lamports / 1_000_000_000;
-    let frac = lamports % 1_000_000_000;
+    format_u64_units(lamports, SOL_DECIMALS)
+}
+
+fn format_u64_units(amount: u64, decimals: u8) -> String {
+    if decimals == 0 {
+        return amount.to_string();
+    }
+    let scale = 10u64.pow(u32::from(decimals));
+    let whole = amount / scale;
+    let frac = amount % scale;
     if frac == 0 {
         return whole.to_string();
     }
-    let mut frac_text = format!("{frac:09}");
+    let mut frac_text = format!("{frac:0width$}", width = usize::from(decimals));
     while frac_text.ends_with('0') {
         frac_text.pop();
     }
@@ -645,4 +727,8 @@ fn base64_encode(data: &[u8]) -> String {
         out.push('=');
     }
     out
+}
+
+fn short_b58_suffix(s: &str) -> String {
+    s.get(s.len().saturating_sub(6)..).unwrap_or(s).to_string()
 }

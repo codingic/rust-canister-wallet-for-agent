@@ -3,7 +3,7 @@ pub mod avalanche;
 pub mod base;
 pub mod bsc;
 pub mod ethereum;
-pub mod icp;
+pub mod internet_computer;
 pub mod optimism;
 pub mod polygon;
 pub mod sepolia;

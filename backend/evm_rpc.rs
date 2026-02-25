@@ -12,7 +12,9 @@ use crate::addressing;
 use crate::config;
 use crate::error::{WalletError, WalletResult};
 use crate::sdk::evm_tx;
-use crate::types::{BalanceRequest, BalanceResponse, TransferRequest, TransferResponse};
+use crate::types::{
+    BalanceRequest, BalanceResponse, ConfiguredTokenResponse, TransferRequest, TransferResponse,
+};
 
 const EVM_NATIVE_DECIMALS: usize = 18;
 const EVM_NATIVE_GAS_LIMIT: u64 = 21_000;
@@ -102,6 +104,28 @@ pub async fn get_erc20_balance(
     })
 }
 
+pub async fn discover_erc20_token(
+    network: &str,
+    token_contract: &str,
+) -> WalletResult<ConfiguredTokenResponse> {
+    let token_contract = normalize_and_validate_hex_address(token_contract)?;
+    let decimals = fetch_erc20_decimals(network, &token_contract).await?;
+    let symbol = fetch_erc20_text_property(network, &token_contract, [0x95, 0xd8, 0x9b, 0x41])
+        .await
+        .unwrap_or_else(|_| fallback_token_symbol(&token_contract));
+    let name = fetch_erc20_text_property(network, &token_contract, [0x06, 0xfd, 0xde, 0x03])
+        .await
+        .unwrap_or_else(|_| format!("ERC20 {}", short_address_suffix(&token_contract)));
+
+    Ok(ConfiguredTokenResponse {
+        network: network.to_string(),
+        symbol,
+        name,
+        token_address: token_contract,
+        decimals: u64::from(decimals),
+    })
+}
+
 pub async fn transfer_native_eth(
     network: &str,
     req: TransferRequest,
@@ -118,7 +142,7 @@ pub async fn transfer_native_eth(
     }
     let to_bytes = hex_address_to_20_bytes(&to)?;
 
-    let tx_id = send_legacy_transaction(
+    let tx_id = send_eip1559_transaction(
         network,
         req.from.as_deref(),
         &to_bytes,
@@ -154,7 +178,7 @@ pub async fn transfer_erc20(network: &str, req: TransferRequest) -> WalletResult
     }
 
     let data = evm_tx::encode_erc20_transfer_call(&to_bytes, &amount_units)?;
-    let tx_id = send_legacy_transaction(
+    let tx_id = send_eip1559_transaction(
         network,
         req.from.as_deref(),
         &token_contract_bytes,
@@ -172,7 +196,7 @@ pub async fn transfer_erc20(network: &str, req: TransferRequest) -> WalletResult
     })
 }
 
-async fn send_legacy_transaction(
+async fn send_eip1559_transaction(
     network: &str,
     from_override: Option<&str>,
     to_bytes: &[u8; 20],
@@ -204,12 +228,17 @@ async fn send_legacy_transaction(
         .await?,
     )?;
 
-    let gas_price = evm_tx::parse_hex_quantity(
-        &rpc_call_hex_string(network, "eth_gasPrice", json!([])).await?,
-    )?;
+    let (max_priority_fee_per_gas, max_fee_per_gas) = fetch_eip1559_fees(network).await?;
 
-    let signing_payload = evm_tx::rlp_encode_legacy_unsigned(
-        &nonce, &gas_price, gas_limit, &to_bytes, value, data, chain_id,
+    let signing_payload = evm_tx::rlp_encode_eip1559_unsigned(
+        chain_id,
+        &nonce,
+        &max_priority_fee_per_gas,
+        &max_fee_per_gas,
+        gas_limit,
+        to_bytes,
+        value,
+        data,
     );
     let signing_hash = evm_tx::keccak256(&signing_payload);
     let signature_bytes = sign_prehash_with_management(&signing_hash).await?;
@@ -226,28 +255,60 @@ async fn send_legacy_transaction(
         ));
     }
 
-    let y_parity = if recovery.is_y_odd() { 1u64 } else { 0u64 };
-    let v = chain_id
-        .checked_mul(2)
-        .and_then(|x| x.checked_add(35 + y_parity))
-        .ok_or_else(|| WalletError::Internal("v overflow".into()))?;
+    let y_parity = if recovery.is_y_odd() { 1u8 } else { 0u8 };
 
     let r = BigUint::from_bytes_be(&signature_bytes[..32]);
     let s = BigUint::from_bytes_be(&signature_bytes[32..]);
-    let signed_raw = evm_tx::rlp_encode_legacy_signed(
+    let signed_raw = evm_tx::rlp_encode_eip1559_signed(
+        chain_id,
         &nonce,
-        &gas_price,
+        &max_priority_fee_per_gas,
+        &max_fee_per_gas,
         gas_limit,
-        &to_bytes,
+        to_bytes,
         value,
         data,
-        &BigUint::from(v),
+        y_parity,
         &r,
         &s,
     );
     let raw_tx_hex = format!("0x{}", addressing::hex_encode(&signed_raw));
 
     rpc_call_hex_string(network, "eth_sendRawTransaction", json!([raw_tx_hex])).await
+}
+
+async fn fetch_eip1559_fees(network: &str) -> WalletResult<(BigUint, BigUint)> {
+    let priority_fee =
+        match rpc_call_hex_string(network, "eth_maxPriorityFeePerGas", json!([])).await {
+            Ok(v) => evm_tx::parse_hex_quantity(&v)?,
+            Err(_) => {
+                // Fallback for providers that do not support eth_maxPriorityFeePerGas.
+                let gas_price = evm_tx::parse_hex_quantity(
+                    &rpc_call_hex_string(network, "eth_gasPrice", json!([])).await?,
+                )?;
+                gas_price
+            }
+        };
+
+    let base_fee = fetch_latest_base_fee_per_gas(network)
+        .await
+        .unwrap_or_else(|_| BigUint::from(0u8));
+    let max_fee = (&base_fee * BigUint::from(2u8)) + &priority_fee;
+    let max_fee = if max_fee < priority_fee {
+        priority_fee.clone()
+    } else {
+        max_fee
+    };
+    Ok((priority_fee, max_fee))
+}
+
+async fn fetch_latest_base_fee_per_gas(network: &str) -> WalletResult<BigUint> {
+    let latest_block = rpc_call(network, "eth_getBlockByNumber", json!(["latest", false])).await?;
+    let base_fee_hex = latest_block
+        .get("baseFeePerGas")
+        .and_then(Value::as_str)
+        .ok_or_else(|| WalletError::Internal("latest block missing baseFeePerGas".into()))?;
+    evm_tx::parse_hex_quantity(base_fee_hex)
 }
 
 async fn sign_prehash_with_management(prehash: &[u8; 32]) -> WalletResult<Vec<u8>> {
@@ -427,6 +488,89 @@ async fn fetch_erc20_decimals(network: &str, token_contract: &str) -> WalletResu
     }
     let raw = value.to_bytes_be();
     Ok(*raw.last().unwrap_or(&0))
+}
+
+async fn fetch_erc20_text_property(
+    network: &str,
+    token_contract: &str,
+    selector: [u8; 4],
+) -> WalletResult<String> {
+    let result_hex = rpc_call_hex_string(
+        network,
+        "eth_call",
+        json!([
+            {
+                "to": token_contract,
+                "data": format!("0x{}", addressing::hex_encode(&selector))
+            },
+            "latest"
+        ]),
+    )
+    .await?;
+    let bytes = evm_tx::parse_hex_data(&result_hex)?;
+    decode_abi_string_or_bytes32(&bytes)
+}
+
+fn decode_abi_string_or_bytes32(bytes: &[u8]) -> WalletResult<String> {
+    if bytes.is_empty() {
+        return Err(WalletError::Internal(
+            "ERC20 string property returned empty data".into(),
+        ));
+    }
+    if bytes.len() == 32 {
+        let end = bytes.iter().position(|b| *b == 0).unwrap_or(bytes.len());
+        let s = String::from_utf8(bytes[..end].to_vec())
+            .map_err(|_| WalletError::Internal("ERC20 bytes32 property is not utf8".into()))?;
+        return Ok(s.trim().to_string());
+    }
+    if bytes.len() >= 96 {
+        let offset = u256_be_to_usize(&bytes[0..32])?;
+        if offset + 64 > bytes.len() {
+            return Err(WalletError::Internal(
+                "ERC20 ABI string offset is out of range".into(),
+            ));
+        }
+        let len = u256_be_to_usize(&bytes[offset..offset + 32])?;
+        let start = offset + 32;
+        let end = start.saturating_add(len);
+        if end > bytes.len() {
+            return Err(WalletError::Internal(
+                "ERC20 ABI string length is out of range".into(),
+            ));
+        }
+        let s = String::from_utf8(bytes[start..end].to_vec())
+            .map_err(|_| WalletError::Internal("ERC20 string property is not utf8".into()))?;
+        return Ok(s.trim().to_string());
+    }
+    Err(WalletError::Internal(
+        "unsupported ERC20 string property ABI encoding".into(),
+    ))
+}
+
+fn u256_be_to_usize(bytes: &[u8]) -> WalletResult<usize> {
+    if bytes.len() != 32 {
+        return Err(WalletError::Internal(
+            "u256 ABI word must be 32 bytes".into(),
+        ));
+    }
+    if bytes[..24].iter().any(|b| *b != 0) {
+        return Err(WalletError::Internal(
+            "u256 value does not fit usize".into(),
+        ));
+    }
+    let mut arr = [0u8; 8];
+    arr.copy_from_slice(&bytes[24..32]);
+    usize::try_from(u64::from_be_bytes(arr))
+        .map_err(|_| WalletError::Internal("u256 value does not fit usize".into()))
+}
+
+fn short_address_suffix(addr: &str) -> String {
+    let s = addr.trim();
+    s.get(s.len().saturating_sub(6)..).unwrap_or(s).to_string()
+}
+
+fn fallback_token_symbol(addr: &str) -> String {
+    format!("TKN{}", short_address_suffix(addr).to_uppercase())
 }
 
 #[cfg(test)]

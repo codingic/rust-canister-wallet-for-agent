@@ -1,16 +1,49 @@
 use candid::Principal;
 
-use crate::chains::{aptos, btc, eth, icp, near, sepolia, sol, solana_testnet, sui, ton, trx};
+use crate::chains::{
+    aptos_mainnet, bitcoin, ethereum, internet_computer, near_mainnet, sepolia, solana,
+    solana_testnet, sui_mainnet, ton_mainnet, tron,
+};
 use crate::config;
 use crate::error::{WalletError, WalletResult};
 use crate::types::{
-    AddressResponse, BalanceRequest, BalanceResponse, ConfiguredExplorerResponse,
-    ConfiguredTokenResponse, NetworkModuleStatus, ServiceInfoResponse, TransferRequest,
-    TransferResponse, WalletNetworkInfoResponse,
+    AddConfiguredTokenRequest, AddressResponse, BalanceRequest, BalanceResponse,
+    ConfiguredExplorerResponse, ConfiguredRpcResponse, ConfiguredTokenResponse,
+    NetworkModuleStatus, RemoveConfiguredRpcRequest, RemoveConfiguredTokenRequest,
+    ServiceInfoResponse, SetConfiguredRpcRequest, TransferRequest, TransferResponse,
+    WalletNetworkInfoResponse,
 };
-use crate::{evm_rpc, state};
+use crate::{evm_rpc, state, token_registry};
 
 const API_VERSION: &str = "0.1.0";
+
+fn bootstrap_runtime_config_from_static() {
+    let default_rpcs = config::rpc_config::wallet_networks()
+        .into_iter()
+        .filter_map(|info| {
+            info.default_rpc_url.map(|rpc_url| ConfiguredRpcResponse {
+                network: config::rpc_config::normalize_network(info.id),
+                rpc_url: rpc_url.to_string(),
+            })
+        })
+        .collect();
+    state::seed_missing_configured_rpcs(default_rpcs);
+
+    let mut builtin_tokens: Vec<ConfiguredTokenResponse> = Vec::new();
+    for info in config::rpc_config::wallet_networks() {
+        let network_key = normalize_network_name_key(info.id);
+        for token in config::token_list_config::configured_tokens(info.id) {
+            builtin_tokens.push(ConfiguredTokenResponse {
+                network: network_key.clone(),
+                symbol: token.symbol.to_string(),
+                name: token.name.to_string(),
+                token_address: token.token_address.to_string(),
+                decimals: token.decimals,
+            });
+        }
+    }
+    state::set_builtin_tokens(builtin_tokens);
+}
 
 fn ensure_not_paused() -> WalletResult<()> {
     if state::is_paused() {
@@ -28,6 +61,7 @@ fn require_owner_placeholder() -> WalletResult<()> {
 #[ic_cdk::init]
 fn init() {
     state::restore(state::State::default());
+    bootstrap_runtime_config_from_static();
 }
 
 #[ic_cdk::query]
@@ -83,24 +117,37 @@ fn wallet_networks() -> Vec<WalletNetworkInfoResponse> {
             shared_address_group: info.shared_address_group.to_string(),
             supports_send: info.supports_send,
             supports_balance: info.supports_balance,
-            default_rpc_url: info.default_rpc_url.map(ToString::to_string),
+            default_rpc_url: config::rpc_config::configured_rpc(info.id).map(|c| c.rpc_url),
         })
         .collect()
 }
 
 #[ic_cdk::query]
+fn configured_rpcs() -> Vec<ConfiguredRpcResponse> {
+    state::configured_rpcs()
+}
+
+#[ic_cdk::query]
 fn configured_tokens(network: String) -> Vec<ConfiguredTokenResponse> {
     let request_network = normalize_network_name_key(&network);
-    config::token_list_config::configured_tokens(&network)
-        .iter()
-        .map(|t| ConfiguredTokenResponse {
-            network: request_network.clone(),
-            symbol: t.symbol.to_string(),
-            name: t.name.to_string(),
-            token_address: t.token_address.to_string(),
-            decimals: t.decimals,
-        })
-        .collect()
+    let mut merged: Vec<ConfiguredTokenResponse> =
+        state::builtin_tokens_for_network(&request_network)
+            .into_iter()
+            .filter(|t| !state::is_removed_token(&request_network, &t.token_address))
+            .collect();
+
+    let custom = state::custom_tokens_for_network(&request_network);
+    for token in custom {
+        if let Some(existing) = merged
+            .iter_mut()
+            .find(|t| t.token_address == token.token_address)
+        {
+            *existing = token;
+        } else {
+            merged.push(token);
+        }
+    }
+    merged
 }
 
 #[ic_cdk::query]
@@ -113,8 +160,64 @@ fn configured_explorer(network: String) -> Option<ConfiguredExplorerResponse> {
     })
 }
 
+#[ic_cdk::update]
+async fn add_configured_token(
+    req: AddConfiguredTokenRequest,
+) -> WalletResult<ConfiguredTokenResponse> {
+    require_owner_placeholder()?;
+    ensure_not_paused()?;
+    let normalized_network = normalize_network_name_key(&req.network);
+    let mut discovered =
+        token_registry::discover_token_metadata(&normalized_network, &req.token_address).await?;
+    discovered.network = normalized_network;
+    state::upsert_custom_token(discovered.clone());
+    Ok(discovered)
+}
+
+#[ic_cdk::update]
+fn remove_configured_token(req: RemoveConfiguredTokenRequest) -> WalletResult<bool> {
+    require_owner_placeholder()?;
+    let network = normalize_network_name_key(&req.network);
+    let token_address = req.token_address.trim();
+    if token_address.is_empty() {
+        return Err(WalletError::invalid_input("token_address is required"));
+    }
+    Ok(state::remove_token(&network, token_address))
+}
+
+#[ic_cdk::update]
+fn set_configured_rpc(req: SetConfiguredRpcRequest) -> WalletResult<ConfiguredRpcResponse> {
+    require_owner_placeholder()?;
+    let network = config::rpc_config::normalize_network(&req.network);
+    if network.is_empty() {
+        return Err(WalletError::invalid_input("network is required"));
+    }
+    if config::rpc_config::wallet_network_info(&network).is_none() {
+        return Err(WalletError::invalid_input("unsupported network"));
+    }
+    let rpc_url = req.rpc_url.trim();
+    if rpc_url.is_empty() {
+        return Err(WalletError::invalid_input("rpc_url is required"));
+    }
+    state::upsert_configured_rpc(&network, rpc_url);
+    Ok(ConfiguredRpcResponse {
+        network,
+        rpc_url: rpc_url.to_string(),
+    })
+}
+
+#[ic_cdk::update]
+fn remove_configured_rpc(req: RemoveConfiguredRpcRequest) -> WalletResult<bool> {
+    require_owner_placeholder()?;
+    let network = config::rpc_config::normalize_network(&req.network);
+    if network.is_empty() {
+        return Err(WalletError::invalid_input("network is required"));
+    }
+    Ok(state::remove_configured_rpc(&network))
+}
+
 fn normalize_network_name_key(input: &str) -> String {
-    input.trim().to_lowercase().replace('_', "-")
+    token_registry::normalize_network_name(input)
 }
 
 #[ic_cdk::update]
@@ -203,39 +306,39 @@ macro_rules! evm_token_transfer_update {
     };
 }
 
-address_update!(btc_request_address, btc);
-address_update!(eth_request_address, eth);
-address_update!(base_request_address, eth);
-address_update!(bsc_request_address, eth);
-address_update!(arb_request_address, eth);
-address_update!(op_request_address, eth);
-address_update!(avax_request_address, eth);
-address_update!(okb_request_address, eth);
-address_update!(polygon_request_address, eth);
+address_update!(bitcoin_request_address, bitcoin);
+address_update!(ethereum_request_address, ethereum);
+address_update!(base_request_address, ethereum);
+address_update!(bsc_request_address, ethereum);
+address_update!(arbitrum_request_address, ethereum);
+address_update!(optimism_request_address, ethereum);
+address_update!(avalanche_request_address, ethereum);
+address_update!(okx_request_address, ethereum);
+address_update!(polygon_request_address, ethereum);
 address_update!(sepolia_request_address, sepolia);
-address_update!(sol_request_address, sol);
+address_update!(solana_request_address, solana);
 address_update!(solana_testnet_request_address, solana_testnet);
-address_update!(trx_request_address, trx);
-address_update!(ton_request_address, ton);
-address_update!(near_request_address, near);
-address_update!(aptos_request_address, aptos);
-address_update!(sui_request_address, sui);
+address_update!(tron_request_address, tron);
+address_update!(ton_mainnet_request_address, ton_mainnet);
+address_update!(near_mainnet_request_address, near_mainnet);
+address_update!(aptos_mainnet_request_address, aptos_mainnet);
+address_update!(sui_mainnet_request_address, sui_mainnet);
 
 #[ic_cdk::update]
-async fn btc_get_balance_btc(req: BalanceRequest) -> WalletResult<BalanceResponse> {
-    btc::get_balance(req).await
+async fn bitcoin_get_balance_btc(req: BalanceRequest) -> WalletResult<BalanceResponse> {
+    bitcoin::get_balance(req).await
 }
 
 #[ic_cdk::update]
-async fn btc_transfer_btc(req: TransferRequest) -> WalletResult<TransferResponse> {
+async fn bitcoin_transfer_btc(req: TransferRequest) -> WalletResult<TransferResponse> {
     ensure_not_paused()?;
-    btc::transfer(req).await
+    bitcoin::transfer(req).await
 }
 
-evm_native_balance_update!(eth_get_balance_eth, "ethereum");
-evm_token_balance_update!(eth_get_balance_erc20, "ethereum");
-evm_native_transfer_update!(eth_transfer_eth, "ethereum");
-evm_token_transfer_update!(eth_transfer_erc20, "ethereum");
+evm_native_balance_update!(ethereum_get_balance_eth, "ethereum");
+evm_token_balance_update!(ethereum_get_balance_erc20, "ethereum");
+evm_native_transfer_update!(ethereum_transfer_eth, "ethereum");
+evm_token_transfer_update!(ethereum_transfer_erc20, "ethereum");
 
 evm_native_balance_update!(sepolia_get_balance_eth, "sepolia");
 evm_token_balance_update!(sepolia_get_balance_erc20, "sepolia");
@@ -252,25 +355,25 @@ evm_token_balance_update!(bsc_get_balance_bep20, "bsc");
 evm_native_transfer_update!(bsc_transfer_bnb, "bsc");
 evm_token_transfer_update!(bsc_transfer_bep20, "bsc");
 
-evm_native_balance_update!(arb_get_balance_eth, "arbitrum");
-evm_token_balance_update!(arb_get_balance_erc20, "arbitrum");
-evm_native_transfer_update!(arb_transfer_eth, "arbitrum");
-evm_token_transfer_update!(arb_transfer_erc20, "arbitrum");
+evm_native_balance_update!(arbitrum_get_balance_eth, "arbitrum");
+evm_token_balance_update!(arbitrum_get_balance_erc20, "arbitrum");
+evm_native_transfer_update!(arbitrum_transfer_eth, "arbitrum");
+evm_token_transfer_update!(arbitrum_transfer_erc20, "arbitrum");
 
-evm_native_balance_update!(op_get_balance_eth, "optimism");
-evm_token_balance_update!(op_get_balance_erc20, "optimism");
-evm_native_transfer_update!(op_transfer_eth, "optimism");
-evm_token_transfer_update!(op_transfer_erc20, "optimism");
+evm_native_balance_update!(optimism_get_balance_eth, "optimism");
+evm_token_balance_update!(optimism_get_balance_erc20, "optimism");
+evm_native_transfer_update!(optimism_transfer_eth, "optimism");
+evm_token_transfer_update!(optimism_transfer_erc20, "optimism");
 
-evm_native_balance_update!(avax_get_balance_avax, "avalanche");
-evm_token_balance_update!(avax_get_balance_erc20, "avalanche");
-evm_native_transfer_update!(avax_transfer_avax, "avalanche");
-evm_token_transfer_update!(avax_transfer_erc20, "avalanche");
+evm_native_balance_update!(avalanche_get_balance_avax, "avalanche");
+evm_token_balance_update!(avalanche_get_balance_erc20, "avalanche");
+evm_native_transfer_update!(avalanche_transfer_avax, "avalanche");
+evm_token_transfer_update!(avalanche_transfer_erc20, "avalanche");
 
-evm_native_balance_update!(okb_get_balance_okb, "okx");
-evm_token_balance_update!(okb_get_balance_erc20, "okx");
-evm_native_transfer_update!(okb_transfer_okb, "okx");
-evm_token_transfer_update!(okb_transfer_erc20, "okx");
+evm_native_balance_update!(okx_get_balance_okb, "okx");
+evm_token_balance_update!(okx_get_balance_erc20, "okx");
+evm_native_transfer_update!(okx_transfer_okb, "okx");
+evm_token_transfer_update!(okx_transfer_erc20, "okx");
 
 evm_native_balance_update!(polygon_get_balance_pol, "polygon");
 evm_token_balance_update!(polygon_get_balance_erc20, "polygon");
@@ -278,38 +381,38 @@ evm_native_transfer_update!(polygon_transfer_pol, "polygon");
 evm_token_transfer_update!(polygon_transfer_erc20, "polygon");
 
 #[ic_cdk::query(composite = true)]
-async fn icp_get_balance_icp(req: BalanceRequest) -> WalletResult<BalanceResponse> {
-    icp::get_balance_icp(req).await
+async fn internet_computer_get_balance_icp(req: BalanceRequest) -> WalletResult<BalanceResponse> {
+    internet_computer::get_balance_icp(req).await
 }
 
 #[ic_cdk::query(composite = true)]
-async fn icp_get_balance_icrc(req: BalanceRequest) -> WalletResult<BalanceResponse> {
-    icp::get_balance_icrc(req).await
+async fn internet_computer_get_balance_icrc(req: BalanceRequest) -> WalletResult<BalanceResponse> {
+    internet_computer::get_balance_icrc(req).await
 }
 
 #[ic_cdk::update]
-async fn icp_transfer_icp(req: TransferRequest) -> WalletResult<TransferResponse> {
+async fn internet_computer_transfer_icp(req: TransferRequest) -> WalletResult<TransferResponse> {
     ensure_not_paused()?;
-    icp::transfer_icp(req).await
+    internet_computer::transfer_icp(req).await
 }
 
 #[ic_cdk::update]
-async fn icp_transfer_icrc(req: TransferRequest) -> WalletResult<TransferResponse> {
+async fn internet_computer_transfer_icrc(req: TransferRequest) -> WalletResult<TransferResponse> {
     ensure_not_paused()?;
-    icp::transfer_icrc(req).await
+    internet_computer::transfer_icrc(req).await
 }
 
-balance_update!(sol_get_balance_sol, sol);
-balance_update!(sol_get_balance_spl, sol);
+balance_update!(solana_get_balance_sol, solana);
+balance_update!(solana_get_balance_spl, solana);
 #[ic_cdk::update]
-async fn sol_transfer_sol(req: TransferRequest) -> WalletResult<TransferResponse> {
+async fn solana_transfer_sol(req: TransferRequest) -> WalletResult<TransferResponse> {
     ensure_not_paused()?;
-    sol::transfer_sol(req).await
+    solana::transfer_sol(req).await
 }
 #[ic_cdk::update]
-async fn sol_transfer_spl(req: TransferRequest) -> WalletResult<TransferResponse> {
+async fn solana_transfer_spl(req: TransferRequest) -> WalletResult<TransferResponse> {
     ensure_not_paused()?;
-    sol::transfer_spl(req).await
+    solana::transfer_spl(req).await
 }
 
 balance_update!(solana_testnet_get_balance_sol, solana_testnet);
@@ -326,103 +429,103 @@ async fn solana_testnet_transfer_spl(req: TransferRequest) -> WalletResult<Trans
 }
 
 #[ic_cdk::update]
-async fn trx_get_balance_trx(req: BalanceRequest) -> WalletResult<BalanceResponse> {
-    trx::get_balance(req).await
+async fn tron_get_balance_trx(req: BalanceRequest) -> WalletResult<BalanceResponse> {
+    tron::get_balance(req).await
 }
 
 #[ic_cdk::update]
-async fn trx_get_balance_trc20(req: BalanceRequest) -> WalletResult<BalanceResponse> {
-    trx::get_balance(req).await
+async fn tron_get_balance_trc20(req: BalanceRequest) -> WalletResult<BalanceResponse> {
+    tron::get_balance(req).await
 }
 
 #[ic_cdk::update]
-async fn trx_transfer_trx(req: TransferRequest) -> WalletResult<TransferResponse> {
+async fn tron_transfer_trx(req: TransferRequest) -> WalletResult<TransferResponse> {
     ensure_not_paused()?;
-    trx::transfer(req).await
+    tron::transfer(req).await
 }
 
 #[ic_cdk::update]
-async fn trx_transfer_trc20(req: TransferRequest) -> WalletResult<TransferResponse> {
+async fn tron_transfer_trc20(req: TransferRequest) -> WalletResult<TransferResponse> {
     ensure_not_paused()?;
-    trx::transfer(req).await
+    tron::transfer(req).await
 }
 
 #[ic_cdk::update]
-async fn ton_get_balance_ton(req: BalanceRequest) -> WalletResult<BalanceResponse> {
-    ton::get_balance(req).await
+async fn ton_mainnet_get_balance_ton(req: BalanceRequest) -> WalletResult<BalanceResponse> {
+    ton_mainnet::get_balance(req).await
 }
 
 #[ic_cdk::update]
-async fn ton_get_balance_jetton(req: BalanceRequest) -> WalletResult<BalanceResponse> {
-    ton::get_balance(req).await
+async fn ton_mainnet_get_balance_jetton(req: BalanceRequest) -> WalletResult<BalanceResponse> {
+    ton_mainnet::get_balance(req).await
 }
 #[ic_cdk::update]
-async fn ton_transfer_ton(req: TransferRequest) -> WalletResult<TransferResponse> {
+async fn ton_mainnet_transfer_ton(req: TransferRequest) -> WalletResult<TransferResponse> {
     ensure_not_paused()?;
-    ton::transfer(req).await
+    ton_mainnet::transfer(req).await
 }
 
 #[ic_cdk::update]
-async fn ton_transfer_jetton(req: TransferRequest) -> WalletResult<TransferResponse> {
+async fn ton_mainnet_transfer_jetton(req: TransferRequest) -> WalletResult<TransferResponse> {
     ensure_not_paused()?;
-    ton::transfer(req).await
+    ton_mainnet::transfer(req).await
 }
 
 #[ic_cdk::update]
-async fn near_get_balance_near(req: BalanceRequest) -> WalletResult<BalanceResponse> {
-    near::get_balance(req).await
+async fn near_mainnet_get_balance_near(req: BalanceRequest) -> WalletResult<BalanceResponse> {
+    near_mainnet::get_balance(req).await
 }
 #[ic_cdk::update]
-async fn near_get_balance_nep141(req: BalanceRequest) -> WalletResult<BalanceResponse> {
-    near::get_balance(req).await
+async fn near_mainnet_get_balance_nep141(req: BalanceRequest) -> WalletResult<BalanceResponse> {
+    near_mainnet::get_balance(req).await
 }
 #[ic_cdk::update]
-async fn near_transfer_near(req: TransferRequest) -> WalletResult<TransferResponse> {
+async fn near_mainnet_transfer_near(req: TransferRequest) -> WalletResult<TransferResponse> {
     ensure_not_paused()?;
-    near::transfer(req).await
+    near_mainnet::transfer(req).await
 }
 #[ic_cdk::update]
-async fn near_transfer_nep141(req: TransferRequest) -> WalletResult<TransferResponse> {
+async fn near_mainnet_transfer_nep141(req: TransferRequest) -> WalletResult<TransferResponse> {
     ensure_not_paused()?;
-    near::transfer(req).await
+    near_mainnet::transfer(req).await
 }
 
 #[ic_cdk::update]
-async fn aptos_get_balance_apt(req: BalanceRequest) -> WalletResult<BalanceResponse> {
-    aptos::get_balance(req).await
+async fn aptos_mainnet_get_balance_apt(req: BalanceRequest) -> WalletResult<BalanceResponse> {
+    aptos_mainnet::get_balance(req).await
 }
 #[ic_cdk::update]
-async fn aptos_get_balance_token(req: BalanceRequest) -> WalletResult<BalanceResponse> {
-    aptos::get_balance(req).await
+async fn aptos_mainnet_get_balance_token(req: BalanceRequest) -> WalletResult<BalanceResponse> {
+    aptos_mainnet::get_balance(req).await
 }
 #[ic_cdk::update]
-async fn aptos_transfer_apt(req: TransferRequest) -> WalletResult<TransferResponse> {
+async fn aptos_mainnet_transfer_apt(req: TransferRequest) -> WalletResult<TransferResponse> {
     ensure_not_paused()?;
-    aptos::transfer(req).await
+    aptos_mainnet::transfer(req).await
 }
 #[ic_cdk::update]
-async fn aptos_transfer_token(req: TransferRequest) -> WalletResult<TransferResponse> {
+async fn aptos_mainnet_transfer_token(req: TransferRequest) -> WalletResult<TransferResponse> {
     ensure_not_paused()?;
-    aptos::transfer(req).await
+    aptos_mainnet::transfer(req).await
 }
 
 #[ic_cdk::update]
-async fn sui_get_balance_sui(req: BalanceRequest) -> WalletResult<BalanceResponse> {
-    sui::get_balance(req).await
+async fn sui_mainnet_get_balance_sui(req: BalanceRequest) -> WalletResult<BalanceResponse> {
+    sui_mainnet::get_balance(req).await
 }
 #[ic_cdk::update]
-async fn sui_get_balance_token(req: BalanceRequest) -> WalletResult<BalanceResponse> {
-    sui::get_balance(req).await
+async fn sui_mainnet_get_balance_token(req: BalanceRequest) -> WalletResult<BalanceResponse> {
+    sui_mainnet::get_balance(req).await
 }
 #[ic_cdk::update]
-async fn sui_transfer_sui(req: TransferRequest) -> WalletResult<TransferResponse> {
+async fn sui_mainnet_transfer_sui(req: TransferRequest) -> WalletResult<TransferResponse> {
     ensure_not_paused()?;
-    sui::transfer(req).await
+    sui_mainnet::transfer(req).await
 }
 #[ic_cdk::update]
-async fn sui_transfer_token(req: TransferRequest) -> WalletResult<TransferResponse> {
+async fn sui_mainnet_transfer_token(req: TransferRequest) -> WalletResult<TransferResponse> {
     ensure_not_paused()?;
-    sui::transfer(req).await
+    sui_mainnet::transfer(req).await
 }
 
 #[ic_cdk::pre_upgrade]
@@ -439,4 +542,5 @@ fn post_upgrade() {
         Ok((snapshot,)) => state::restore(snapshot),
         Err(_) => state::restore(state::State::default()),
     }
+    bootstrap_runtime_config_from_static();
 }

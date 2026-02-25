@@ -377,25 +377,25 @@ async function queryConfiguredExplorer(actor, network) {
 function getTransferMethodName(network, assetKind) {
   const n = normalizeNetworkId(network);
   const isToken = assetKind === 'token';
-  if (n === 'ethereum') return isToken ? 'eth_transfer_erc20' : 'eth_transfer_eth';
+  if (n === 'ethereum') return isToken ? 'ethereum_transfer_erc20' : 'ethereum_transfer_eth';
   if (n === 'sepolia') return isToken ? 'sepolia_transfer_erc20' : 'sepolia_transfer_eth';
   if (n === 'base') return isToken ? 'base_transfer_erc20' : 'base_transfer_eth';
   if (n === 'bsc') return isToken ? 'bsc_transfer_bep20' : 'bsc_transfer_bnb';
-  if (n === 'arbitrum') return isToken ? 'arb_transfer_erc20' : 'arb_transfer_eth';
-  if (n === 'optimism') return isToken ? 'op_transfer_erc20' : 'op_transfer_eth';
-  if (n === 'avalanche') return isToken ? 'avax_transfer_erc20' : 'avax_transfer_avax';
-  if (n === 'okx') return isToken ? 'okb_transfer_erc20' : 'okb_transfer_okb';
+  if (n === 'arbitrum') return isToken ? 'arbitrum_transfer_erc20' : 'arbitrum_transfer_eth';
+  if (n === 'optimism') return isToken ? 'optimism_transfer_erc20' : 'optimism_transfer_eth';
+  if (n === 'avalanche') return isToken ? 'avalanche_transfer_erc20' : 'avalanche_transfer_avax';
+  if (n === 'okx') return isToken ? 'okx_transfer_erc20' : 'okx_transfer_okb';
   if (n === 'polygon') return isToken ? 'polygon_transfer_erc20' : 'polygon_transfer_pol';
-  if (n === 'internet-computer') return isToken ? 'icp_transfer_icrc' : 'icp_transfer_icp';
-  if (n === 'bitcoin') return 'btc_transfer_btc';
-  if (n === 'solana') return isToken ? 'sol_transfer_spl' : 'sol_transfer_sol';
+  if (n === 'internet-computer') return isToken ? 'internet_computer_transfer_icrc' : 'internet_computer_transfer_icp';
+  if (n === 'bitcoin') return 'bitcoin_transfer_btc';
+  if (n === 'solana') return isToken ? 'solana_transfer_spl' : 'solana_transfer_sol';
   if (n === 'solana-testnet')
     return isToken ? 'solana_testnet_transfer_spl' : 'solana_testnet_transfer_sol';
-  if (n === 'tron') return isToken ? 'trx_transfer_trc20' : 'trx_transfer_trx';
-  if (n === 'ton-mainnet') return isToken ? 'ton_transfer_jetton' : 'ton_transfer_ton';
-  if (n === 'near-mainnet') return isToken ? 'near_transfer_nep141' : 'near_transfer_near';
-  if (n === 'aptos-mainnet') return isToken ? 'aptos_transfer_token' : 'aptos_transfer_apt';
-  if (n === 'sui-mainnet') return isToken ? 'sui_transfer_token' : 'sui_transfer_sui';
+  if (n === 'tron') return isToken ? 'tron_transfer_trc20' : 'tron_transfer_trx';
+  if (n === 'ton-mainnet') return isToken ? 'ton_mainnet_transfer_jetton' : 'ton_mainnet_transfer_ton';
+  if (n === 'near-mainnet') return isToken ? 'near_mainnet_transfer_nep141' : 'near_mainnet_transfer_near';
+  if (n === 'aptos-mainnet') return isToken ? 'aptos_mainnet_transfer_token' : 'aptos_mainnet_transfer_apt';
+  if (n === 'sui-mainnet') return isToken ? 'sui_mainnet_transfer_token' : 'sui_mainnet_transfer_sui';
   return `${n}_transfer`;
 }
 
@@ -436,23 +436,23 @@ async function queryTransfer(actor, network, asset, fromAddress, toAddress, amou
 
 function getAddressMethodName(network) {
   const n = normalizeNetworkId(network);
-  if (n === 'ethereum') return 'eth_request_address';
+  if (n === 'ethereum') return 'ethereum_request_address';
   if (n === 'sepolia') return 'sepolia_request_address';
   if (n === 'base') return 'base_request_address';
   if (n === 'bsc') return 'bsc_request_address';
-  if (n === 'arbitrum') return 'arb_request_address';
-  if (n === 'optimism') return 'op_request_address';
-  if (n === 'avalanche') return 'avax_request_address';
-  if (n === 'okx') return 'okb_request_address';
+  if (n === 'arbitrum') return 'arbitrum_request_address';
+  if (n === 'optimism') return 'optimism_request_address';
+  if (n === 'avalanche') return 'avalanche_request_address';
+  if (n === 'okx') return 'okx_request_address';
   if (n === 'polygon') return 'polygon_request_address';
-  if (n === 'bitcoin') return 'btc_request_address';
-  if (n === 'solana') return 'sol_request_address';
+  if (n === 'bitcoin') return 'bitcoin_request_address';
+  if (n === 'solana') return 'solana_request_address';
   if (n === 'solana-testnet') return 'solana_testnet_request_address';
-  if (n === 'tron') return 'trx_request_address';
-  if (n === 'ton-mainnet') return 'ton_request_address';
-  if (n === 'near-mainnet') return 'near_request_address';
-  if (n === 'aptos-mainnet') return 'aptos_request_address';
-  if (n === 'sui-mainnet') return 'sui_request_address';
+  if (n === 'tron') return 'tron_request_address';
+  if (n === 'ton-mainnet') return 'ton_mainnet_request_address';
+  if (n === 'near-mainnet') return 'near_mainnet_request_address';
+  if (n === 'aptos-mainnet') return 'aptos_mainnet_request_address';
+  if (n === 'sui-mainnet') return 'sui_mainnet_request_address';
   return null;
 }
 
@@ -486,25 +486,25 @@ async function queryRequestAddress(actor, network) {
 function getBalanceMethodName(network, token = '') {
   const n = normalizeNetworkId(network);
   const hasToken = typeof token === 'string' && token.trim().length > 0;
-  if (n === 'ethereum') return hasToken ? 'eth_get_balance_erc20' : 'eth_get_balance_eth';
+  if (n === 'ethereum') return hasToken ? 'ethereum_get_balance_erc20' : 'ethereum_get_balance_eth';
   if (n === 'sepolia') return hasToken ? 'sepolia_get_balance_erc20' : 'sepolia_get_balance_eth';
   if (n === 'base') return hasToken ? 'base_get_balance_erc20' : 'base_get_balance_eth';
   if (n === 'bsc') return hasToken ? 'bsc_get_balance_bep20' : 'bsc_get_balance_bnb';
-  if (n === 'arbitrum') return hasToken ? 'arb_get_balance_erc20' : 'arb_get_balance_eth';
-  if (n === 'optimism') return hasToken ? 'op_get_balance_erc20' : 'op_get_balance_eth';
-  if (n === 'avalanche') return hasToken ? 'avax_get_balance_erc20' : 'avax_get_balance_avax';
-  if (n === 'okx') return hasToken ? 'okb_get_balance_erc20' : 'okb_get_balance_okb';
+  if (n === 'arbitrum') return hasToken ? 'arbitrum_get_balance_erc20' : 'arbitrum_get_balance_eth';
+  if (n === 'optimism') return hasToken ? 'optimism_get_balance_erc20' : 'optimism_get_balance_eth';
+  if (n === 'avalanche') return hasToken ? 'avalanche_get_balance_erc20' : 'avalanche_get_balance_avax';
+  if (n === 'okx') return hasToken ? 'okx_get_balance_erc20' : 'okx_get_balance_okb';
   if (n === 'polygon') return hasToken ? 'polygon_get_balance_erc20' : 'polygon_get_balance_pol';
-  if (n === 'bitcoin') return 'btc_get_balance_btc';
-  if (n === 'internet-computer') return hasToken ? 'icp_get_balance_icrc' : 'icp_get_balance_icp';
-  if (n === 'solana') return hasToken ? 'sol_get_balance_spl' : 'sol_get_balance_sol';
+  if (n === 'bitcoin') return 'bitcoin_get_balance_btc';
+  if (n === 'internet-computer') return hasToken ? 'internet_computer_get_balance_icrc' : 'internet_computer_get_balance_icp';
+  if (n === 'solana') return hasToken ? 'solana_get_balance_spl' : 'solana_get_balance_sol';
   if (n === 'solana-testnet')
     return hasToken ? 'solana_testnet_get_balance_spl' : 'solana_testnet_get_balance_sol';
-  if (n === 'tron') return hasToken ? 'trx_get_balance_trc20' : 'trx_get_balance_trx';
-  if (n === 'ton-mainnet') return hasToken ? 'ton_get_balance_jetton' : 'ton_get_balance_ton';
-  if (n === 'near-mainnet') return hasToken ? 'near_get_balance_nep141' : 'near_get_balance_near';
-  if (n === 'aptos-mainnet') return hasToken ? 'aptos_get_balance_token' : 'aptos_get_balance_apt';
-  if (n === 'sui-mainnet') return hasToken ? 'sui_get_balance_token' : 'sui_get_balance_sui';
+  if (n === 'tron') return hasToken ? 'tron_get_balance_trc20' : 'tron_get_balance_trx';
+  if (n === 'ton-mainnet') return hasToken ? 'ton_mainnet_get_balance_jetton' : 'ton_mainnet_get_balance_ton';
+  if (n === 'near-mainnet') return hasToken ? 'near_mainnet_get_balance_nep141' : 'near_mainnet_get_balance_near';
+  if (n === 'aptos-mainnet') return hasToken ? 'aptos_mainnet_get_balance_token' : 'aptos_mainnet_get_balance_apt';
+  if (n === 'sui-mainnet') return hasToken ? 'sui_mainnet_get_balance_token' : 'sui_mainnet_get_balance_sui';
   return `${n}_get_balance`;
 }
 
@@ -558,6 +558,14 @@ function buildExplorerUrlFromConfig(config, account, tokenAddress) {
 export default function App() {
   const [networkOptions, setNetworkOptions] = useState(DEFAULT_NETWORK_ORDER);
   const [networkDisplayNames, setNetworkDisplayNames] = useState({});
+  const [lang, setLang] = useState(() => {
+    try {
+      const saved = window.localStorage.getItem('app_lang');
+      return saved === 'en' ? 'en' : 'zh';
+    } catch {
+      return 'zh';
+    }
+  });
   const [selectedNetwork, setSelectedNetwork] = useState(DEFAULT_NETWORK_ORDER[0]);
   const [nativeAddressInput, setNativeAddressInput] = useState('');
   const [tokenAddressInput, setTokenAddressInput] = useState('');
@@ -594,6 +602,16 @@ export default function App() {
 
   const selectedConfig =
     NETWORK_CONFIG[selectedNetwork] || fallbackNetworkConfig(selectedNetwork);
+  const isZh = lang === 'zh';
+  const trText = (zh, en) => (isZh ? zh : en);
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem('app_lang', lang);
+    } catch {
+      // ignore storage errors
+    }
+  }, [lang]);
 
   useEffect(() => {
     setNativeAddressInput('');
@@ -610,7 +628,9 @@ export default function App() {
     setDetailBalanceState({ phase: 'idle', data: null, error: '' });
     setNativeBalanceState({ phase: 'idle', data: null, error: '' });
     setTokenBalanceState({ phase: 'idle', data: null, error: '' });
-    setStatusText(`已切换到 ${selectedConfig.title}`);
+    setStatusText(
+      trText(`已切换到 ${selectedConfig.title}`, `Switched to ${selectedConfig.title}`)
+    );
   }, [selectedNetwork, selectedConfig.title]);
 
   useEffect(() => {
@@ -900,40 +920,49 @@ export default function App() {
   }
 
   function handleLoginClick() {
-    const msg = '登录逻辑待接入（可接 Internet Identity 或你自己的登录方案）';
+    const msg = trText(
+      '登录逻辑待接入（可接 Internet Identity 或你自己的登录方案）',
+      'Login flow is not wired yet (Internet Identity or your own auth can be integrated).'
+    );
     setStatusText(msg);
     setToast(msg);
   }
 
   const nativeBalanceValue =
     nativeBalanceState.phase === 'loading'
-      ? '查询中...'
+      ? trText('查询中...', 'Loading...')
       : nativeBalanceState.phase === 'error'
-        ? '查询失败'
-        : nativeBalanceState.data?.amount || '未查询/无返回值';
+        ? trText('查询失败', 'Query failed')
+        : nativeBalanceState.data?.amount || trText('未查询/无返回值', 'No result');
 
   const nativeBalanceMeta =
     nativeBalanceState.phase === 'error'
       ? nativeBalanceState.error
       : nativeBalanceState.data?.message ||
-        (nativeBalanceState.data?.pending ? '后端返回 pending=true' : '等待查询');
+        (nativeBalanceState.data?.pending
+          ? trText('后端返回 pending=true', 'Backend returned pending=true')
+          : trText('等待查询', 'Waiting for query'));
 
   const tokenBalanceValue =
     tokenBalanceState.phase === 'loading'
-      ? '查询中...'
+      ? trText('查询中...', 'Loading...')
       : tokenBalanceState.phase === 'error'
-        ? '查询失败'
-        : tokenBalanceState.data?.amount || (selectedConfig.showToken ? '未查询/无返回值' : '--');
+        ? trText('查询失败', 'Query failed')
+        : tokenBalanceState.data?.amount ||
+          (selectedConfig.showToken ? trText('未查询/无返回值', 'No result') : '--');
 
   const tokenBalanceMeta =
     tokenBalanceState.phase === 'error'
       ? tokenBalanceState.error
       : tokenBalanceState.data?.message ||
         (tokenBalanceState.data?.pending
-          ? '后端返回 pending=true'
+          ? trText('后端返回 pending=true', 'Backend returned pending=true')
           : configuredTokens.length
-            ? `已从 config 加载 ${configuredTokens.length} 个 Token`
-            : '当前网络 config 未配置 Token');
+            ? trText(
+                `已从 config 加载 ${configuredTokens.length} 个 Token`,
+                `Loaded ${configuredTokens.length} token(s) from config`
+              )
+            : trText('当前网络 config 未配置 Token', 'No tokens configured for this network'));
 
   const selectedConfiguredToken =
     configuredTokens.find((t) => t.tokenAddress === selectedConfiguredTokenAddress) ||
@@ -973,9 +1002,9 @@ export default function App() {
       : null;
   const detailTokenBalanceValue =
     detailTokenRowBalance?.phase === 'loading'
-      ? '查询中...'
+      ? trText('查询中...', 'Loading...')
       : detailTokenRowBalance?.phase === 'error'
-        ? '查询失败'
+        ? trText('查询失败', 'Query failed')
         : detailTokenRowBalance?.amount || tokenBalanceValue;
   const detailTokenBalanceMeta =
     detailTokenRowBalance?.phase === 'error'
@@ -984,9 +1013,9 @@ export default function App() {
         (detailTokenRowBalance?.pending ? 'pending=true' : tokenBalanceMeta);
   const detailBalanceValue =
     detailBalanceState.phase === 'loading'
-      ? '查询中...'
+      ? trText('查询中...', 'Loading...')
       : detailBalanceState.phase === 'error'
-        ? '查询失败'
+        ? trText('查询失败', 'Query failed')
         : detailBalanceState.data?.amount ||
           (detailAsset?.kind === 'native' ? nativeBalanceValue : detailTokenBalanceValue);
   const detailBalanceMeta =
@@ -994,7 +1023,7 @@ export default function App() {
       ? detailBalanceState.error
       : detailBalanceState.data?.message ||
         (detailBalanceState.data?.pending
-          ? '后端返回 pending=true'
+          ? trText('后端返回 pending=true', 'Backend returned pending=true')
           : detailAsset?.kind === 'native'
             ? nativeBalanceMeta
             : detailTokenBalanceMeta);
@@ -1195,25 +1224,28 @@ export default function App() {
   async function handleTokenSendClick() {
     const asset = detailAsset;
     if (!asset) {
-      const msg = '请先选择资产';
+      const msg = trText('请先选择资产', 'Please select an asset first');
       setToast(msg);
       setStatusText(msg);
       return;
     }
     if (!nativeAddressInput.trim()) {
-      const msg = '当前钱包地址未就绪，无法发送';
+      const msg = trText(
+        '当前钱包地址未就绪，无法发送',
+        'Wallet address is not ready; cannot send'
+      );
       setToast(msg);
       setStatusText(msg);
       return;
     }
     if (!tokenTransferTo.trim()) {
-      const msg = '请输入 To 地址';
+      const msg = trText('请输入 To 地址', 'Please enter a destination address');
       setToast(msg);
       setStatusText(msg);
       return;
     }
     if (!tokenTransferAmount.trim()) {
-      const msg = '请输入发送数量';
+      const msg = trText('请输入发送数量', 'Please enter an amount to send');
       setToast(msg);
       setStatusText(msg);
       return;
@@ -1226,14 +1258,19 @@ export default function App() {
       actor = null;
     }
     if (!actor) {
-      const msg = '前端未连接到 backend actor';
+      const msg = trText('前端未连接到 backend actor', 'Frontend is not connected to backend actor');
       setToast(msg);
       setStatusText(msg);
       return;
     }
 
     setIsTokenSending(true);
-    setStatusText(`正在发送 ${selectedNetwork} ${asset.symbol || 'Asset'} ...`);
+    setStatusText(
+      trText(
+        `正在发送 ${selectedNetwork} ${asset.symbol || 'Asset'} ...`,
+        `Sending ${selectedNetwork} ${asset.symbol || 'Asset'} ...`
+      )
+    );
 
     const sendRes = await queryTransfer(
       actor,
@@ -1247,12 +1284,15 @@ export default function App() {
     if (sendRes.ok) {
       const txLabel = sendRes.data?.txId ? ` tx=${sendRes.data.txId}` : '';
       const msg = sendRes.data?.accepted
-        ? `发送成功${txLabel}`
-        : `发送未执行: ${sendRes.data?.message || '后端返回 accepted=false'}`;
+        ? trText(`发送成功${txLabel}`, `Sent successfully${txLabel}`)
+        : trText(
+            `发送未执行: ${sendRes.data?.message || '后端返回 accepted=false'}`,
+            `Send not executed: ${sendRes.data?.message || 'backend returned accepted=false'}`
+          );
       setStatusText(msg);
       setToast(msg);
     } else {
-      const msg = `发送失败: ${sendRes.error}`;
+      const msg = trText(`发送失败: ${sendRes.error}`, `Send failed: ${sendRes.error}`);
       setStatusText(msg);
       setToast(msg);
     }
@@ -1262,14 +1302,17 @@ export default function App() {
 
   function handleOpenExplorerClick() {
     if (!detailAsset) {
-      const msg = '当前未选中资产';
+      const msg = trText('当前未选中资产', 'No asset selected');
       setToast(msg);
       setStatusText(msg);
       return;
     }
     const account = nativeAddressInput.trim();
     if (!account) {
-      const msg = '当前地址未就绪，无法打开区块浏览器';
+      const msg = trText(
+        '当前地址未就绪，无法打开区块浏览器',
+        'Current address is not ready; cannot open explorer'
+      );
       setToast(msg);
       setStatusText(msg);
       return;
@@ -1278,14 +1321,22 @@ export default function App() {
     const tokenAddress = detailAsset.kind === 'token' ? detailAsset.tokenAddress : '';
     const url = buildExplorerUrlFromConfig(configuredExplorer, account, tokenAddress);
     if (!url) {
-      const msg = `当前网络 config 未配置区块浏览器链接: ${selectedNetwork}`;
+      const msg = trText(
+        `当前网络 config 未配置区块浏览器链接: ${selectedNetwork}`,
+        `Explorer URL is not configured for network: ${selectedNetwork}`
+      );
       setToast(msg);
       setStatusText(msg);
       return;
     }
 
     window.open(url, '_blank', 'noopener,noreferrer');
-    setStatusText(`已打开区块浏览器：${selectedConfig.title} ${detailAsset.symbol || 'Asset'}`);
+    setStatusText(
+      trText(
+        `已打开区块浏览器：${selectedConfig.title} ${detailAsset.symbol || 'Asset'}`,
+        `Opened explorer: ${selectedConfig.title} ${detailAsset.symbol || 'Asset'}`
+      )
+    );
   }
 
   return (
@@ -1305,19 +1356,42 @@ export default function App() {
           <div className="brand__eyebrow">AGENT WALLET CONTROL PLANE</div>
           <div className="brand__title">rustwalletforagent</div>
           <div className="brand__meta" title={backendCanisterId || ''}>
-            <span className="brand__meta-label">Backend Canister ID</span>
-            <code className="brand__meta-value">{backendCanisterId || '未读取'}</code>
+            <span className="brand__meta-label">
+              {trText('后端 Canister ID', 'Backend Canister ID')}
+            </span>
+            <code className="brand__meta-value">
+              {backendCanisterId || trText('未读取', 'Not loaded')}
+            </code>
           </div>
         </div>
 
         <div className="topbar__actions">
+          <div className="lang-toggle" role="group" aria-label={trText('语言切换', 'Language switch')}>
+            <button
+              type="button"
+              className={`lang-toggle__btn${lang === 'zh' ? ' is-active' : ''}`}
+              onClick={() => setLang('zh')}
+              aria-pressed={lang === 'zh'}
+            >
+              中文
+            </button>
+            <button
+              type="button"
+              className={`lang-toggle__btn${lang === 'en' ? ' is-active' : ''}`}
+              onClick={() => setLang('en')}
+              aria-pressed={lang === 'en'}
+            >
+              EN
+            </button>
+          </div>
+
           <label className="network-picker">
-            <span className="network-picker__label">NETWORK</span>
+            <span className="network-picker__label">{trText('网络', 'NETWORK')}</span>
             <select
               className="network-picker__select"
               value={selectedNetwork}
               onChange={(event) => setSelectedNetwork(event.target.value)}
-              aria-label="选择网络"
+              aria-label={trText('选择网络', 'Select network')}
             >
               {networkOptions.map((networkId) => {
                 const cfg = NETWORK_CONFIG[networkId] || fallbackNetworkConfig(networkId);
@@ -1332,30 +1406,30 @@ export default function App() {
           </label>
 
           <button type="button" className="button button--ghost" onClick={handleLoginClick}>
-            登录
+            {trText('登录', 'Login')}
           </button>
         </div>
       </header>
 
       <main className="layout layout--single">
         <section className="layout__main">
-          <section className="asset-grid" aria-label="资产卡片">
+          <section className="asset-grid" aria-label={trText('资产卡片', 'Asset cards')}>
             <article className="panel asset-card asset-card--native">
               <header className="asset-card__head">
                 <div>
                   <p className="asset-card__eyebrow">NATIVE ASSET</p>
                   <h2>{selectedConfig.nativeSymbol}</h2>
                 </div>
-                <span className="pill pill--glow">Primary</span>
+                <span className="pill pill--glow">{trText('主资产', 'Primary')}</span>
               </header>
 
               <div className="asset-card__row">
-                <div className="asset-card__label">地址</div>
+                <div className="asset-card__label">{trText('地址', 'Address')}</div>
                 <div className="mono-block">{nativeAddressInput.trim() || '--'}</div>
               </div>
 
               <div className="asset-card__row">
-                <div className="asset-card__label">余额</div>
+                <div className="asset-card__label">{trText('余额', 'Balance')}</div>
                 <div className="asset-card__balance">{nativeBalanceValue}</div>
                 <div className="asset-card__sub">{nativeBalanceMeta}</div>
               </div>
@@ -1363,9 +1437,13 @@ export default function App() {
               {selectedConfig.showToken && (
                 <div className="asset-card__row token-vlist">
                   <div className="token-vlist__header">
-                    <div className="asset-card__label token-vlist__title">Token 列表</div>
+                    <div className="asset-card__label token-vlist__title">
+                      {trText('Token 列表', 'Token List')}
+                    </div>
                     <span className="pill">
-                      {tokenListCount ? `${tokenListCount} items` : 'No assets'}
+                      {tokenListCount
+                        ? trText(`${tokenListCount} 项`, `${tokenListCount} items`)
+                        : trText('无资产', 'No assets')}
                     </span>
                   </div>
 
@@ -1375,7 +1453,10 @@ export default function App() {
                         className="token-vlist__viewport"
                         onScroll={(event) => setTokenListScrollTop(event.currentTarget.scrollTop)}
                         role="list"
-                        aria-label={`${selectedConfig.title} Token 列表`}
+                        aria-label={trText(
+                          `${selectedConfig.title} Token 列表`,
+                          `${selectedConfig.title} token list`
+                        )}
                       >
                         <div
                           className="token-vlist__spacer"
@@ -1389,10 +1470,10 @@ export default function App() {
                               asset.kind === 'native'
                                 ? nativeBalanceValue
                                 : rowBalance?.phase === 'loading'
-                                  ? '查询中...'
+                                  ? trText('查询中...', 'Loading...')
                                   : rowBalance?.phase === 'error'
-                                    ? '查询失败'
-                                    : rowBalance?.amount || '未查询';
+                                    ? trText('查询失败', 'Query failed')
+                                    : rowBalance?.amount || trText('未查询', 'Not queried');
                             const rowBalanceMeta =
                               asset.kind === 'native'
                                 ? nativeBalanceMeta
@@ -1401,7 +1482,7 @@ export default function App() {
                                   : rowBalance?.message ||
                                     (rowBalance?.pending
                                       ? 'pending=true'
-                                      : `decimals: ${String(asset.decimals ?? '--')}`);
+                                      : `${trText('精度', 'decimals')}: ${String(asset.decimals ?? '--')}`);
                             return (
                               <button
                                 key={asset.rowKey}
@@ -1415,19 +1496,23 @@ export default function App() {
                                 <div className="token-vlist__item-main">
                                   <div className="token-vlist__symbol">{asset.symbol || 'TOKEN'}</div>
                                   <div className="token-vlist__name">
-                                    {asset.kind === 'native' ? 'Native Asset' : asset.name || 'Unnamed Token'}
+                                    {asset.kind === 'native'
+                                      ? trText('原生资产', 'Native Asset')
+                                      : asset.name || trText('未命名 Token', 'Unnamed Token')}
                                   </div>
                                 </div>
                                 <div className="token-vlist__item-meta">
                                   <div className="token-vlist__addr">
                                     {asset.kind === 'native'
-                                      ? `地址: ${nativeAddressInput.trim() || '--'}`
-                                      : `合约: ${asset.tokenAddress}`}
+                                      ? `${trText('地址', 'Address')}: ${nativeAddressInput.trim() || '--'}`
+                                      : `${trText('合约', 'Contract')}: ${asset.tokenAddress}`}
                                   </div>
                                   <div className="token-vlist__decimals">
-                                    精度: {String(asset.decimals ?? '--')}
+                                    {trText('精度', 'Decimals')}: {String(asset.decimals ?? '--')}
                                   </div>
-                                  <div className="token-vlist__balance">余额: {rowBalanceText}</div>
+                                  <div className="token-vlist__balance">
+                                    {trText('余额', 'Balance')}: {rowBalanceText}
+                                  </div>
                                   <div className="token-vlist__balance-meta">{rowBalanceMeta}</div>
                                 </div>
                               </button>
@@ -1437,7 +1522,9 @@ export default function App() {
                       </div>
                     </>
                   ) : (
-                    <div className="mono-block">当前网络 config 未配置 Token</div>
+                    <div className="mono-block">
+                      {trText('当前网络 config 未配置 Token', 'No tokens configured for this network')}
+                    </div>
                   )}
                 </div>
               )}
@@ -1447,7 +1534,12 @@ export default function App() {
       </main>
 
       {detailAsset && (
-        <div className="token-detail-modal" role="dialog" aria-modal="true" aria-label="Token 详情">
+        <div
+          className="token-detail-modal"
+          role="dialog"
+          aria-modal="true"
+          aria-label={trText('资产详情', 'Asset detail')}
+        >
           <div className="token-detail-modal__backdrop" onClick={closeTokenDetail} aria-hidden="true" />
           <section className="panel token-detail-modal__panel">
             <div className="token-detail-modal__shell">
@@ -1462,39 +1554,45 @@ export default function App() {
                 <div className="token-detail-modal__head-actions">
                   <span className="pill">{selectedConfig.title}</span>
                   <span className={`pill ${detailAsset.kind === 'native' ? 'pill--glow' : ''}`}>
-                    {detailAsset.kind === 'native' ? 'Native' : 'Token'}
+                    {detailAsset.kind === 'native' ? trText('原生', 'Native') : 'Token'}
                   </span>
                   <button type="button" className="button button--ghost" onClick={closeTokenDetail}>
-                    关闭
+                    {trText('关闭', 'Close')}
                   </button>
                 </div>
               </header>
 
               <div className="token-detail-modal__body">
                 <section className="token-detail-card">
-                  <div className="token-detail-card__title">资产信息</div>
+                  <div className="token-detail-card__title">{trText('资产信息', 'Asset Info')}</div>
 
                   <div className="token-detail-kv">
-                    <div className="asset-card__label">接收地址</div>
-                    <div className="mono-block">{nativeAddressInput.trim() || '未获取到当前钱包地址'}</div>
+                    <div className="asset-card__label">{trText('接收地址', 'Receive Address')}</div>
+                    <div className="mono-block">
+                      {nativeAddressInput.trim() || trText('未获取到当前钱包地址', 'Wallet address not ready')}
+                    </div>
                   </div>
 
                   <div className="token-detail-kv">
                     <div className="asset-card__label">
-                      {detailAsset.kind === 'native' ? '资产类型' : 'Token 合约地址'}
+                      {detailAsset.kind === 'native'
+                        ? trText('资产类型', 'Asset Type')
+                        : trText('Token 合约地址', 'Token Contract')}
                     </div>
                     <div className="mono-block">
-                      {detailAsset.kind === 'native' ? '原生币（无合约地址）' : detailAsset.tokenAddress}
+                      {detailAsset.kind === 'native'
+                        ? trText('原生币（无合约地址）', 'Native asset (no contract address)')
+                        : detailAsset.tokenAddress}
                     </div>
                   </div>
 
                   <div className="token-detail-stats">
                     <div className="token-detail-stat">
-                      <div className="asset-card__label">精度</div>
+                      <div className="asset-card__label">{trText('精度', 'Decimals')}</div>
                       <div className="mono-block">{String(detailAsset.decimals ?? '--')}</div>
                     </div>
                     <div className="token-detail-stat token-detail-stat--balance">
-                      <div className="asset-card__label">余额</div>
+                      <div className="asset-card__label">{trText('余额', 'Balance')}</div>
                       <div className="mono-block token-detail-stat__balance">
                         {detailBalanceValue}
                       </div>
@@ -1505,7 +1603,10 @@ export default function App() {
                   </div>
 
                   <div className="token-detail-card__hint">
-                    当前地址与币种信息来自后端 canister 接口与 config 配置。
+                    {trText(
+                      '当前地址与币种信息来自后端 canister 接口与 config 配置。',
+                      'Address and asset metadata come from backend canister APIs and config.'
+                    )}
                   </div>
 
                   <div className="token-detail-card__actions">
@@ -1514,39 +1615,42 @@ export default function App() {
                       className="button button--ghost"
                       onClick={handleOpenExplorerClick}
                     >
-                      区块浏览器查看
+                      {trText('区块浏览器查看', 'Open Explorer')}
                     </button>
                   </div>
                 </section>
 
                 <section className="token-detail-card token-detail-card--send">
-                  <div className="token-detail-card__title">发送交易</div>
+                  <div className="token-detail-card__title">{trText('发送交易', 'Send Transaction')}</div>
 
                   <label className="token-detail-modal__field">
-                    <span className="asset-card__label">To 地址</span>
+                    <span className="asset-card__label">{trText('To 地址', 'To Address')}</span>
                     <input
                       value={tokenTransferTo}
                       onChange={(event) => setTokenTransferTo(event.target.value)}
-                      placeholder="请输入接收方地址"
+                      placeholder={trText('请输入接收方地址', 'Enter recipient address')}
                     />
                   </label>
 
                   <label className="token-detail-modal__field">
-                    <span className="asset-card__label">数量</span>
+                    <span className="asset-card__label">{trText('数量', 'Amount')}</span>
                     <input
                       value={tokenTransferAmount}
                       onChange={(event) => setTokenTransferAmount(event.target.value)}
-                      placeholder={`请输入 ${detailAsset.symbol || 'Asset'} 数量`}
+                      placeholder={trText(
+                        `请输入 ${detailAsset.symbol || 'Asset'} 数量`,
+                        `Enter ${detailAsset.symbol || 'Asset'} amount`
+                      )}
                     />
                   </label>
 
                   <div className="token-detail-send-preview">
                     <div className="token-detail-send-preview__row">
-                      <span>网络</span>
+                      <span>{trText('网络', 'Network')}</span>
                       <strong>{selectedConfig.title}</strong>
                     </div>
                     <div className="token-detail-send-preview__row">
-                      <span>资产</span>
+                      <span>{trText('资产', 'Asset')}</span>
                       <strong>{detailAsset.symbol || 'Asset'}</strong>
                     </div>
                     <div className="token-detail-send-preview__row">
@@ -1562,7 +1666,7 @@ export default function App() {
                       onClick={handleTokenSendClick}
                       disabled={isTokenSending}
                     >
-                      {isTokenSending ? '发送中...' : '发送'}
+                      {isTokenSending ? trText('发送中...', 'Sending...') : trText('发送', 'Send')}
                     </button>
                   </div>
                 </section>

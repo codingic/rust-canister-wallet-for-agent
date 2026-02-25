@@ -1,5 +1,5 @@
 use crate::config::token_list::{
-    arbitrum, avalanche, base, bsc, ethereum, icp, optimism, polygon, sepolia, solana,
+    arbitrum, avalanche, base, bsc, ethereum, internet_computer, optimism, polygon, sepolia, solana,
 };
 use crate::types::networks;
 
@@ -14,7 +14,7 @@ pub struct ConfiguredToken {
 
 pub fn configured_tokens(network: &str) -> &'static [ConfiguredToken] {
     match normalize_config_network_name(network).as_str() {
-        networks::INTERNET_COMPUTER => icp::TOKENS,
+        networks::INTERNET_COMPUTER => internet_computer::TOKENS,
         networks::ETHEREUM => ethereum::TOKENS,
         networks::SEPOLIA => sepolia::TOKENS,
         networks::BASE => base::TOKENS,
@@ -29,7 +29,7 @@ pub fn configured_tokens(network: &str) -> &'static [ConfiguredToken] {
 }
 
 fn normalize_config_network_name(network: &str) -> String {
-    network.trim().to_lowercase().replace('_', "-")
+    network.trim().to_lowercase().replace('-', "_")
 }
 
 #[cfg(test)]

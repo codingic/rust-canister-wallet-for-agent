@@ -13,7 +13,8 @@ use crate::config;
 use crate::error::{WalletError, WalletResult};
 use crate::sdk::evm_tx;
 use crate::types::{
-    self, AddressResponse, BalanceRequest, BalanceResponse, TransferRequest, TransferResponse,
+    self, AddressResponse, BalanceRequest, BalanceResponse, ConfiguredTokenResponse,
+    TransferRequest, TransferResponse,
 };
 
 const NETWORK_NAME: &str = types::networks::TRON;
@@ -167,6 +168,26 @@ pub async fn transfer(req: TransferRequest) -> WalletResult<TransferResponse> {
     })
 }
 
+pub async fn discover_trc20_token(token_address: &str) -> WalletResult<ConfiguredTokenResponse> {
+    let token = parse_tron_address(token_address)?;
+    let (public_key, _key_name) = addressing::fetch_ecdsa_secp256k1_public_key().await?;
+    let owner = tron_address_from_sec1_public_key(&public_key)?;
+    let decimals = fetch_trc20_decimals(&owner, &token).await?;
+    let symbol = fetch_trc20_string_property(&owner, &token, "symbol()")
+        .await
+        .unwrap_or_else(|_| format!("TRC{}", short_suffix(&token.base58)));
+    let name = fetch_trc20_string_property(&owner, &token, "name()")
+        .await
+        .unwrap_or_else(|_| format!("TRC20 {}", short_suffix(&token.base58)));
+    Ok(ConfiguredTokenResponse {
+        network: NETWORK_NAME.to_string(),
+        symbol,
+        name,
+        token_address: token.base58,
+        decimals: u64::from(decimals),
+    })
+}
+
 async fn tron_create_trx_transfer(
     from: &TronAddress,
     to: &TronAddress,
@@ -280,6 +301,25 @@ async fn fetch_trc20_decimals(owner: &TronAddress, token: &TronAddress) -> Walle
     Ok(*n.to_bytes_be().last().unwrap_or(&0))
 }
 
+async fn fetch_trc20_string_property(
+    owner: &TronAddress,
+    token: &TronAddress,
+    selector: &str,
+) -> WalletResult<String> {
+    let resp = tron_post_json(
+        "wallet/triggerconstantcontract",
+        json!({
+            "owner_address": owner.base58,
+            "contract_address": token.base58,
+            "function_selector": selector,
+            "visible": true
+        }),
+    )
+    .await?;
+    let bytes = tron_constant_result_bytes(&resp)?;
+    decode_abi_string_or_bytes32(&bytes)
+}
+
 fn tron_constant_result_uint(resp: &Value) -> WalletResult<BigUint> {
     if let Some(msg) = resp
         .get("result")
@@ -303,6 +343,86 @@ fn tron_constant_result_uint(resp: &Value) -> WalletResult<BigUint> {
         })?;
     let bytes = decode_hex(hex)?;
     Ok(BigUint::from_bytes_be(&bytes))
+}
+
+fn tron_constant_result_bytes(resp: &Value) -> WalletResult<Vec<u8>> {
+    if let Some(msg) = resp
+        .get("result")
+        .and_then(|v| v.get("message"))
+        .and_then(Value::as_str)
+    {
+        let decoded = decode_hex_or_passthrough(msg);
+        if !decoded.is_empty() {
+            return Err(WalletError::Internal(format!(
+                "TRON constant call error: {decoded}"
+            )));
+        }
+    }
+    let hex = resp
+        .get("constant_result")
+        .and_then(Value::as_array)
+        .and_then(|arr| arr.first())
+        .and_then(Value::as_str)
+        .ok_or_else(|| {
+            WalletError::Internal("TRON constant call missing constant_result".into())
+        })?;
+    decode_hex(hex)
+}
+
+fn decode_abi_string_or_bytes32(bytes: &[u8]) -> WalletResult<String> {
+    if bytes.is_empty() {
+        return Err(WalletError::Internal(
+            "TRC20 string property returned empty data".into(),
+        ));
+    }
+    if bytes.len() == 32 {
+        let end = bytes.iter().position(|b| *b == 0).unwrap_or(bytes.len());
+        return String::from_utf8(bytes[..end].to_vec())
+            .map(|s| s.trim().to_string())
+            .map_err(|_| WalletError::Internal("TRC20 bytes32 property is not utf8".into()));
+    }
+    if bytes.len() >= 96 {
+        let offset = abi_u256_to_usize(&bytes[0..32])?;
+        if offset + 64 > bytes.len() {
+            return Err(WalletError::Internal(
+                "TRC20 ABI string offset out of range".into(),
+            ));
+        }
+        let len = abi_u256_to_usize(&bytes[offset..offset + 32])?;
+        let start = offset + 32;
+        let end = start.saturating_add(len);
+        if end > bytes.len() {
+            return Err(WalletError::Internal(
+                "TRC20 ABI string length out of range".into(),
+            ));
+        }
+        return String::from_utf8(bytes[start..end].to_vec())
+            .map(|s| s.trim().to_string())
+            .map_err(|_| WalletError::Internal("TRC20 string property is not utf8".into()));
+    }
+    Err(WalletError::Internal(
+        "unsupported TRC20 string property ABI encoding".into(),
+    ))
+}
+
+fn abi_u256_to_usize(bytes: &[u8]) -> WalletResult<usize> {
+    if bytes.len() != 32 {
+        return Err(WalletError::Internal("ABI word must be 32 bytes".into()));
+    }
+    if bytes[..24].iter().any(|b| *b != 0) {
+        return Err(WalletError::Internal("ABI value too large".into()));
+    }
+    let mut arr = [0u8; 8];
+    arr.copy_from_slice(&bytes[24..32]);
+    usize::try_from(u64::from_be_bytes(arr))
+        .map_err(|_| WalletError::Internal("ABI value too large".into()))
+}
+
+fn short_suffix(value: &str) -> String {
+    value
+        .get(value.len().saturating_sub(6)..)
+        .unwrap_or(value)
+        .to_uppercase()
 }
 
 fn tron_abi_encode_address_param(addr20: &[u8; 20]) -> String {

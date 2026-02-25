@@ -1,3 +1,4 @@
+use crate::state;
 use crate::types::networks;
 
 pub const DEFAULT_SOLANA_RPC_URL: &str = "https://solana-rpc.publicnode.com";
@@ -45,10 +46,10 @@ pub struct WalletNetworkInfo {
     pub default_rpc_url: Option<&'static str>,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct RpcConfig {
-    pub network: &'static str,
-    pub rpc_url: &'static str,
+    pub network: String,
+    pub rpc_url: String,
 }
 
 const CHAIN_CONFIGS: &[ChainConfig] = &[
@@ -286,11 +287,16 @@ pub fn wallet_network_info(network: &str) -> Option<WalletNetworkInfo> {
 
 pub fn configured_rpc(network: &str) -> Option<RpcConfig> {
     let normalized = normalize_text(network);
-    find_chain_by_input(&normalized).and_then(|cfg| {
-        cfg.default_rpc_url.map(|rpc_url| RpcConfig {
-            network: cfg.id,
-            rpc_url,
-        })
+    if normalized.is_empty() {
+        return None;
+    }
+    let rpc_url = state::configured_rpc(&normalized).or_else(|| {
+        find_chain_by_input(&normalized)
+            .and_then(|cfg| cfg.default_rpc_url.map(ToString::to_string))
+    })?;
+    Some(RpcConfig {
+        network: normalized,
+        rpc_url,
     })
 }
 
@@ -315,6 +321,12 @@ pub fn effective_rpc_url(network: &str, rpc_url: Option<&str>) -> Option<String>
         let t = u.trim();
         if !t.is_empty() {
             return Some(t.to_string());
+        }
+    }
+    let normalized = normalize_text(network);
+    if !normalized.is_empty() {
+        if let Some(runtime) = state::configured_rpc(&normalized) {
+            return Some(runtime);
         }
     }
     default_rpc_url(network).map(ToString::to_string)
@@ -370,7 +382,7 @@ fn chain_wallet_info(cfg: &ChainConfig) -> WalletNetworkInfo {
 }
 
 fn normalize_text(value: &str) -> String {
-    value.trim().to_lowercase().replace('_', "-")
+    value.trim().to_lowercase().replace('-', "_")
 }
 
 fn effective_optional_url(value: Option<&str>) -> Option<String> {
@@ -411,16 +423,16 @@ mod tests {
         assert_eq!(
             configured_rpc(networks::ETHEREUM).unwrap(),
             RpcConfig {
-                network: networks::ETHEREUM,
-                rpc_url: DEFAULT_ETHEREUM_RPC_URL,
+                network: networks::ETHEREUM.to_string(),
+                rpc_url: DEFAULT_ETHEREUM_RPC_URL.to_string(),
             }
         );
         assert!(configured_rpc("eth").is_none());
         assert_eq!(
             configured_rpc("SOLANA_TESTNET").unwrap(),
             RpcConfig {
-                network: networks::SOLANA_TESTNET,
-                rpc_url: DEFAULT_SOLANA_TESTNET_RPC_URL,
+                network: networks::SOLANA_TESTNET.to_string(),
+                rpc_url: DEFAULT_SOLANA_TESTNET_RPC_URL.to_string(),
             }
         );
         assert!(configured_rpc("unknown").is_none());

@@ -150,6 +150,7 @@ pub fn keccak256(data: &[u8]) -> [u8; 32] {
     out
 }
 
+#[allow(dead_code)]
 pub fn rlp_encode_legacy_unsigned(
     nonce: &BigUint,
     gas_price: &BigUint,
@@ -172,6 +173,7 @@ pub fn rlp_encode_legacy_unsigned(
     ])
 }
 
+#[allow(dead_code)]
 pub fn rlp_encode_legacy_signed(
     nonce: &BigUint,
     gas_price: &BigUint,
@@ -194,6 +196,66 @@ pub fn rlp_encode_legacy_signed(
         rlp_encode_biguint(r),
         rlp_encode_biguint(s),
     ])
+}
+
+pub fn rlp_encode_eip1559_unsigned(
+    chain_id: u64,
+    nonce: &BigUint,
+    max_priority_fee_per_gas: &BigUint,
+    max_fee_per_gas: &BigUint,
+    gas_limit: &BigUint,
+    to: &[u8; 20],
+    value: &BigUint,
+    data: &[u8],
+) -> Vec<u8> {
+    let payload = rlp_encode_list(&[
+        rlp_encode_u64(chain_id),
+        rlp_encode_biguint(nonce),
+        rlp_encode_biguint(max_priority_fee_per_gas),
+        rlp_encode_biguint(max_fee_per_gas),
+        rlp_encode_biguint(gas_limit),
+        rlp_encode_bytes(to),
+        rlp_encode_biguint(value),
+        rlp_encode_bytes(data),
+        rlp_encode_list(&[]), // accessList
+    ]);
+    let mut out = Vec::with_capacity(1 + payload.len());
+    out.push(0x02);
+    out.extend_from_slice(&payload);
+    out
+}
+
+pub fn rlp_encode_eip1559_signed(
+    chain_id: u64,
+    nonce: &BigUint,
+    max_priority_fee_per_gas: &BigUint,
+    max_fee_per_gas: &BigUint,
+    gas_limit: &BigUint,
+    to: &[u8; 20],
+    value: &BigUint,
+    data: &[u8],
+    y_parity: u8,
+    r: &BigUint,
+    s: &BigUint,
+) -> Vec<u8> {
+    let payload = rlp_encode_list(&[
+        rlp_encode_u64(chain_id),
+        rlp_encode_biguint(nonce),
+        rlp_encode_biguint(max_priority_fee_per_gas),
+        rlp_encode_biguint(max_fee_per_gas),
+        rlp_encode_biguint(gas_limit),
+        rlp_encode_bytes(to),
+        rlp_encode_biguint(value),
+        rlp_encode_bytes(data),
+        rlp_encode_list(&[]), // accessList
+        rlp_encode_u64(u64::from(y_parity)),
+        rlp_encode_biguint(r),
+        rlp_encode_biguint(s),
+    ]);
+    let mut out = Vec::with_capacity(1 + payload.len());
+    out.push(0x02);
+    out.extend_from_slice(&payload);
+    out
 }
 
 #[cfg(test)]
@@ -304,5 +366,17 @@ mod tests {
     #[test]
     fn rlp_encodes_zero_as_empty_string() {
         assert_eq!(rlp_encode_u64_for_test(0), vec![0x80]);
+    }
+
+    #[test]
+    fn eip1559_encoding_starts_with_type_prefix() {
+        let zero = BigUint::from(0u8);
+        let one = BigUint::from(1u8);
+        let to = [0u8; 20];
+        let unsigned = rlp_encode_eip1559_unsigned(1, &zero, &one, &one, &one, &to, &zero, &[]);
+        let signed =
+            rlp_encode_eip1559_signed(1, &zero, &one, &one, &one, &to, &zero, &[], 0, &one, &one);
+        assert_eq!(unsigned.first().copied(), Some(0x02));
+        assert_eq!(signed.first().copied(), Some(0x02));
     }
 }
