@@ -10,22 +10,7 @@
 
 ## 架构图（当前代码结构）
 
-```mermaid
-flowchart LR
-    UI["React Frontend (`frontend/src/App.jsx`)"] --> API["Canister API Layer (`backend/api.rs`)"]
-    API --> CHAINS["Chain Modules (`backend/chains.rs` -> `bitcoin.rs` / `near_mainnet.rs` / `ton_mainnet.rs` / ... )"]
-    API --> CONFIG["Config Modules (`backend/config/*`)"]
-    API --> STATE["State & Upgrade (`backend/state.rs`)"]
 
-    CHAINS --> SDK["Tx SDK (`backend/sdk/evm_tx.rs` / `sol_tx.rs` / `ton_tx.rs`)"]
-    CHAINS --> ADDR["Addressing & Key Derivation (`backend/addressing.rs`)"]
-    CHAINS --> OUTCALL["Unified HTTP Outcall (`backend/outcall.rs`)"]
-    OUTCALL --> RPC["External Chain RPCs"]
-    CHAINS --> MGMT["IC Management Canister (`ecdsa/schnorr/http_request`)"]
-
-    CONFIG --> UI
-    CONFIG --> CHAINS
-```
 
 模块划分说明：
 
