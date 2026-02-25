@@ -23,7 +23,75 @@ Use this skill when building a JS/TS agent that talks to this project's backend 
 - Runtime config is loaded into canister memory at startup/upgrade from static config and then can be modified by API.
 - Method names are strict and use network-name prefixes (snake_case), for example `ethereum_get_balance_eth`, `ton_mainnet_transfer_ton`.
 
-## JS Actor setup
+## Preferred usage: `js-sdk-for-agent` (local `js-sdk-for-agent/`)
+
+Prefer using the repository's JS SDK wrapper instead of calling raw actor methods directly.
+
+Local SDK files:
+
+- `js-sdk-for-agent/src/index.js`
+- `js-sdk-for-agent/examples/quick-start.js`
+- `js-sdk-for-agent/examples/send-eth.js`
+- `js-sdk-for-agent/examples/add-token.js`
+
+The SDK already wraps:
+
+- Actor creation (`@dfinity/agent`)
+- `Ok/Err` result unwrapping
+- network name normalization (`-` -> `_`)
+- dynamic method-name building (`<network>_get_balance_<suffix>`, etc.)
+- RPC / token list config APIs
+
+Basic example:
+
+```js
+import { createCanisterWalletClient } from '../js-sdk-for-agent/src/index.js';
+
+const client = createCanisterWalletClient({
+  canisterId: process.env.CANISTER_ID_BACKEND,
+  host: process.env.IC_HOST ?? 'http://127.0.0.1:4943',
+});
+
+const addr = await client.requestAddress('ethereum');
+const bal = await client.getBalance({
+  network: 'ethereum',
+  account: addr.address,
+});
+
+console.log(addr.address, bal.amount);
+```
+
+Send example (native EVM):
+
+```js
+await client.transfer({
+  network: 'sepolia',
+  to: '0xRecipient...',
+  amount: '0.001',
+});
+```
+
+Token config example:
+
+```js
+await client.addConfiguredToken({
+  network: 'ethereum',
+  tokenAddress: '0xA0b86991c6218b36c1d19d4a2e9eb0ce3606eb48',
+});
+```
+
+RPC override example:
+
+```js
+await client.setConfiguredRpc({
+  network: 'ethereum',
+  rpcUrl: 'https://your-eth-rpc.example',
+});
+```
+
+## Raw actor setup (fallback)
+
+Use this only when you explicitly need a method the SDK does not yet wrap.
 
 Prefer the generated declarations in this repo:
 

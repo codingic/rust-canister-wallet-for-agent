@@ -20,7 +20,7 @@
 - `backend/outcall.rs`：统一 HTTP outcall 入口（所有外部 RPC 都从这里走）
 - `backend/config/*`：RPC、token 列表、浏览器链接配置（前端与后端共用）
 - `backend/addressing.rs`：管理 canister 公钥获取、地址编码、通用派生/格式化工具
-- `skills/canisterwallet-js-agent/SKILL.md`：给 JS/TS agent 的调用技能说明（接口命名、Actor 初始化、配置 API）
+- `skills/canister-wallet-js-usage-for-agent.md`：给 JS/TS agent 的调用技能说明（优先使用 `js-sdk-for-agent`）
 
 ## 功能概览（当前）
 
@@ -241,15 +241,18 @@
   - NEAR：NEP-141 合约账号
   - Aptos / Sui：Coin Type
 
-## JS Agent 技能（Skill）
+## JS Agent 技能（Skill）与 SDK
 
-仓库内提供一个给其他 JS/TS Agent 使用本工程的技能文档：
+仓库内提供给其他 JS/TS Agent 使用本工程的技能文档与独立 SDK：
 
-- `skills/canisterwallet-js-agent/SKILL.md`
+- `skills/canister-wallet-js-usage-for-agent.md`
+- `js-sdk-for-agent/`
 
 内容包括：
 
-- 使用 `src/declarations/backend` 创建 `@dfinity/agent` Actor
+- 优先使用 `js-sdk-for-agent`（封装 Actor 创建、Result 解包、动态方法名构建）
+- `js-sdk-for-agent/examples/*` 示例脚本（快速连通 / 发送 ETH / 添加 Token）
+- 必要时使用 `src/declarations/backend` 创建 `@dfinity/agent` Actor（raw fallback）
 - `Result`（`Ok/Err`）返回值解析模式
 - 基于 `wallet_networks()` 的 `shared_address_group` 做地址共享判断（例如 EVM 同地址）
 - 按网络名动态拼接地址/余额/转账方法名

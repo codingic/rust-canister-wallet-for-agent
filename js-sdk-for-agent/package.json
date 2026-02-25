@@ -1,0 +1,13 @@
+{
+  "name": "@codingic/canisterwallet-js-sdk",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "./src/index.js",
+  "exports": {
+    ".": "./src/index.js"
+  },
+  "dependencies": {
+    "@dfinity/agent": "2.2.0"
+  }
+}
