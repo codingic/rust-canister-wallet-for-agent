@@ -1,0 +1,43 @@
+type CreateCanisterForCallerError = variant {
+  Internal : text;
+  InvalidInput : text;
+  Forbidden : text;
+  QuotaExceeded : text;
+};
+type CreateCanisterForCallerRequest = record { cycles : opt nat64 };
+type Result = variant { Ok : principal; Err : CreateCanisterForCallerError };
+type Result_1 = variant { Ok : nat32; Err : CreateCanisterForCallerError };
+type Result_2 = variant {
+  Ok : opt principal;
+  Err : CreateCanisterForCallerError;
+};
+type Result_3 = variant { Ok : nat64; Err : CreateCanisterForCallerError };
+type Result_4 = variant { Ok : bool; Err : CreateCanisterForCallerError };
+type ServiceInfoResponse = record {
+  last_created_canister : opt principal;
+  owner : opt principal;
+  caller_created_count : nat32;
+  public_create_enabled : bool;
+  version : text;
+  total_created : nat64;
+  max_canisters_per_caller : nat32;
+  factory_cycles_balance : nat;
+  max_extra_cycles_per_create : nat64;
+  caller : principal;
+  paused : bool;
+  default_extra_cycles : nat64;
+};
+service : () -> {
+  create_canister_for_caller : (CreateCanisterForCallerRequest) -> (Result);
+  get_owner : () -> (opt principal) query;
+  my_created_count : () -> (nat32) query;
+  reset_caller_quota : (principal) -> (Result_1);
+  rotate_owner : (principal) -> (Result_2);
+  service_info : () -> (ServiceInfoResponse) query;
+  set_default_extra_cycles : (nat64) -> (Result_3);
+  set_max_canisters_per_caller : (nat32) -> (Result_1);
+  set_max_extra_cycles_per_create : (nat64) -> (Result_3);
+  set_paused : (bool) -> (Result_4);
+  set_public_create_enabled : (bool) -> (Result_4);
+  whoami : () -> (principal) query;
+}

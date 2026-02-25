@@ -26,6 +26,22 @@
         }
       ]
     },
+    "canister_factory": {
+      "candid": "canister-factory/canister_factory.did",
+      "type": "custom",
+      "shrink": true,
+      "gzip": true,
+      "wasm": "target/wasm32-unknown-unknown/release/canister_factory.wasm",
+      "build": [
+        "cargo build --target wasm32-unknown-unknown --release -p canister_factory",
+        "candid-extractor target/wasm32-unknown-unknown/release/canister_factory.wasm > canister-factory/canister_factory.did"
+      ],
+      "metadata": [
+        {
+          "name": "candid:service"
+        }
+      ]
+    },
     "frontend": {
       "dependencies": ["backend"],
       "frontend": {

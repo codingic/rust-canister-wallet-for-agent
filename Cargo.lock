@@ -135,6 +135,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "canister_factory"
+version = "0.1.0"
+dependencies = [
+ "candid",
+ "ic-cdk",
+ "serde",
+]
+
+[[package]]
 name = "cc"
 version = "1.2.56"
 source = "registry+https://github.com/rust-lang/crates.io-index"

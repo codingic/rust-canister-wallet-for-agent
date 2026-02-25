@@ -52,10 +52,36 @@ fn ensure_not_paused() -> WalletResult<()> {
     Ok(())
 }
 
-fn require_owner_placeholder() -> WalletResult<()> {
-    // TODO(auth): enforce msg_caller() == owner after the function layer is stable.
-    let _ = ic_cdk::api::msg_caller();
-    Ok(())
+fn auth_enforced() -> bool {
+    config::app_config::auth_enabled()
+}
+
+fn require_owner() -> WalletResult<()> {
+    if !auth_enforced() {
+        let _ = ic_cdk::api::msg_caller();
+        return Ok(());
+    }
+
+    let caller = ic_cdk::api::msg_caller();
+    if caller == Principal::anonymous() {
+        return Err(WalletError::Forbidden);
+    }
+
+    match state::owner() {
+        Some(owner) if owner == caller => Ok(()),
+        Some(_) => Err(WalletError::Forbidden),
+        None => Err(WalletError::invalid_input(
+            "owner is not initialized in prod mode; call rotate_owner(caller_principal) once to bootstrap",
+        )),
+    }
+}
+
+fn can_bootstrap_owner(new_owner: Principal) -> bool {
+    if !auth_enforced() || state::owner().is_some() {
+        return false;
+    }
+    let caller = ic_cdk::api::msg_caller();
+    caller != Principal::anonymous() && caller == new_owner
 }
 
 #[ic_cdk::init]
@@ -86,9 +112,11 @@ fn service_info() -> ServiceInfoResponse {
         owner: state::owner(),
         paused: state::is_paused(),
         caller: ic_cdk::api::msg_caller(),
-        note: Some(
-            "Auth is placeholder for now; network modules return scaffold responses.".into(),
-        ),
+        note: Some(if auth_enforced() {
+            "Prod mode: owner auth enforced for admin/config APIs".into()
+        } else {
+            "Dev mode: admin/config APIs currently allow unauthenticated access".into()
+        }),
     }
 }
 
@@ -164,7 +192,7 @@ fn configured_explorer(network: String) -> Option<ConfiguredExplorerResponse> {
 async fn add_configured_token(
     req: AddConfiguredTokenRequest,
 ) -> WalletResult<ConfiguredTokenResponse> {
-    require_owner_placeholder()?;
+    require_owner()?;
     ensure_not_paused()?;
     let normalized_network = normalize_network_name_key(&req.network);
     let mut discovered =
@@ -176,7 +204,7 @@ async fn add_configured_token(
 
 #[ic_cdk::update]
 fn remove_configured_token(req: RemoveConfiguredTokenRequest) -> WalletResult<bool> {
-    require_owner_placeholder()?;
+    require_owner()?;
     let network = normalize_network_name_key(&req.network);
     let token_address = req.token_address.trim();
     if token_address.is_empty() {
@@ -187,7 +215,7 @@ fn remove_configured_token(req: RemoveConfiguredTokenRequest) -> WalletResult<bo
 
 #[ic_cdk::update]
 fn set_configured_rpc(req: SetConfiguredRpcRequest) -> WalletResult<ConfiguredRpcResponse> {
-    require_owner_placeholder()?;
+    require_owner()?;
     let network = config::rpc_config::normalize_network(&req.network);
     if network.is_empty() {
         return Err(WalletError::invalid_input("network is required"));
@@ -208,7 +236,7 @@ fn set_configured_rpc(req: SetConfiguredRpcRequest) -> WalletResult<ConfiguredRp
 
 #[ic_cdk::update]
 fn remove_configured_rpc(req: RemoveConfiguredRpcRequest) -> WalletResult<bool> {
-    require_owner_placeholder()?;
+    require_owner()?;
     let network = config::rpc_config::normalize_network(&req.network);
     if network.is_empty() {
         return Err(WalletError::invalid_input("network is required"));
@@ -222,23 +250,25 @@ fn normalize_network_name_key(input: &str) -> String {
 
 #[ic_cdk::update]
 fn rotate_owner(new_owner: Principal) -> WalletResult<Option<Principal>> {
-    require_owner_placeholder()?;
     if new_owner == Principal::anonymous() {
         return Err(WalletError::invalid_input("new_owner cannot be anonymous"));
+    }
+    if !can_bootstrap_owner(new_owner) {
+        require_owner()?;
     }
     Ok(state::rotate_owner(new_owner))
 }
 
 #[ic_cdk::update]
 fn pause() -> WalletResult<()> {
-    require_owner_placeholder()?;
+    require_owner()?;
     state::set_paused(true);
     Ok(())
 }
 
 #[ic_cdk::update]
 fn unpause() -> WalletResult<()> {
-    require_owner_placeholder()?;
+    require_owner()?;
     state::set_paused(false);
     Ok(())
 }
