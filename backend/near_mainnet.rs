@@ -9,8 +9,8 @@ use crate::config;
 use crate::error::{WalletError, WalletResult};
 use crate::sdk::evm_tx;
 use crate::types::{
-    self, AddressResponse, BalanceRequest, BalanceResponse, ConfiguredTokenResponse,
-    TransferRequest, TransferResponse,
+    self, AddressResponse, BalanceRequest, BalanceResponse, BroadcastHttpRequest,
+    ConfiguredTokenResponse, TransferRequest, TransferResponse,
 };
 
 const NETWORK_NAME: &str = types::networks::NEAR_MAINNET;
@@ -230,26 +230,35 @@ pub async fn transfer(req: TransferRequest) -> WalletResult<TransferResponse> {
     }
     .to_borsh()?;
     let signed_b64 = base64_encode_std(&signed_tx_bytes);
-    let res = near_rpc_call("broadcast_tx_commit", json!([signed_b64])).await?;
-    let tx_id = res
-        .get("transaction")
-        .and_then(|t| t.get("hash"))
-        .and_then(Value::as_str)
-        .map(ToString::to_string)
-        .or_else(|| {
-            res.get("transaction_outcome")
-                .and_then(|t| t.get("id"))
-                .and_then(Value::as_str)
-                .map(ToString::to_string)
-        });
+    let tx_id = Some(addressing::base58_encode(tx_hash.as_slice()));
+    let rpc_url = config::rpc_config::resolve_rpc_url(NETWORK_NAME, None)
+        .map_err(|e| WalletError::Internal(format!("near rpc url resolution failed: {e}")))?;
+    let broadcast_body = serde_json::to_string(&json!({
+        "jsonrpc": "2.0",
+        "id": "near-wallet",
+        "method": "broadcast_tx_commit",
+        "params": [signed_b64.clone()]
+    }))
+    .map_err(|err| WalletError::Internal(format!("serialize near rpc body failed: {err}")))?;
 
     Ok(TransferResponse {
         network: NETWORK_NAME.to_string(),
-        accepted: true,
+        accepted: false,
         tx_id: tx_id.clone(),
+        signed_tx: Some(signed_b64),
+        signed_tx_encoding: Some("base64".to_string()),
+        broadcast_request: Some(BroadcastHttpRequest {
+            url: rpc_url,
+            method: "POST".to_string(),
+            headers: vec![
+                ("content-type".to_string(), "application/json".to_string()),
+                ("accept".to_string(), "application/json".to_string()),
+            ],
+            body: Some(broadcast_body),
+        }),
         message: tx_id
-            .map(|h| format!("NEAR broadcast_tx_commit accepted: {h}"))
-            .unwrap_or_else(|| "NEAR broadcast_tx_commit accepted".to_string()),
+            .map(|h| format!("signed NEAR transaction prepared; frontend should broadcast via broadcast_tx_commit: {h}"))
+            .unwrap_or_else(|| "signed NEAR transaction prepared; frontend should broadcast via broadcast_tx_commit".to_string()),
     })
 }
 

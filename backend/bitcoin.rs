@@ -2,7 +2,8 @@ use crate::addressing;
 use crate::config;
 use crate::error::{WalletError, WalletResult};
 use crate::types::{
-    self, AddressResponse, BalanceRequest, BalanceResponse, TransferRequest, TransferResponse,
+    self, AddressResponse, BalanceRequest, BalanceResponse, BroadcastHttpRequest, TransferRequest,
+    TransferResponse,
 };
 use candid::Nat;
 use ic_cdk::bitcoin_canister::{Outpoint, Utxo};
@@ -179,20 +180,26 @@ pub async fn transfer(req: TransferRequest) -> WalletResult<TransferResponse> {
 
     let tx_bytes = serialize_tx(&plan.inputs, &plan.outputs, &witnesses, true);
     let raw_tx_hex = addressing::hex_encode(&tx_bytes);
-    let txid_from_rpc = broadcast_raw_transaction(&raw_tx_hex).await?;
-
-    let txid = if txid_from_rpc.trim().is_empty() {
-        txid_hex(&tx_bytes, &plan.inputs, &plan.outputs, &witnesses)
-    } else {
-        txid_from_rpc
-    };
+    let txid = txid_hex(&tx_bytes, &plan.inputs, &plan.outputs, &witnesses);
+    let broadcast_url = format!("{}{}", bitcoin_rpc_base_url()?, "/tx");
 
     Ok(TransferResponse {
         network: NETWORK_NAME.to_string(),
-        accepted: true,
+        accepted: false,
         tx_id: Some(txid),
+        signed_tx: Some(raw_tx_hex.clone()),
+        signed_tx_encoding: Some("hex".to_string()),
+        broadcast_request: Some(BroadcastHttpRequest {
+            url: broadcast_url,
+            method: "POST".to_string(),
+            headers: vec![
+                ("content-type".to_string(), "text/plain".to_string()),
+                ("accept".to_string(), "text/plain".to_string()),
+            ],
+            body: Some(raw_tx_hex),
+        }),
         message: format!(
-            "btc rpc send accepted (fee={} sats, fee_rate={} sat/vB)",
+            "signed BTC transaction prepared; frontend should POST raw hex to esplora /tx (fee={} sats, fee_rate={} sat/vB)",
             plan.fee_sats, plan.fee_rate_sat_per_vb
         ),
     })
@@ -398,11 +405,6 @@ async fn fetch_address_stats(address: &str) -> WalletResult<MempoolAddressRespon
     btc_rpc_get_json(&format!("/address/{address}")).await
 }
 
-async fn broadcast_raw_transaction(raw_tx_hex: &str) -> WalletResult<String> {
-    let body = raw_tx_hex.trim().as_bytes().to_vec();
-    btc_rpc_post_text("/tx", body, "text/plain").await
-}
-
 fn bitcoin_rpc_base_url() -> WalletResult<String> {
     config::rpc_config::resolve_rpc_url(NETWORK_NAME, None)
         .map_err(|err| WalletError::Internal(format!("bitcoin rpc url resolve failed: {err}")))
@@ -430,29 +432,6 @@ where
 
     serde_json::from_slice::<T>(&http_res.body)
         .map_err(|err| WalletError::Internal(format!("btc rpc parse response failed: {err}")))
-}
-
-async fn btc_rpc_post_text(path: &str, body: Vec<u8>, content_type: &str) -> WalletResult<String> {
-    let http_res = crate::outcall::post_text(
-        format!("{}{}", bitcoin_rpc_base_url()?, path),
-        body,
-        content_type,
-        "text/plain",
-        64 * 1024,
-        "btc rpc",
-    )
-    .await?;
-    if http_res.status != Nat::from(200u16) {
-        let body_text = String::from_utf8_lossy(&http_res.body);
-        let snippet: String = body_text.chars().take(240).collect();
-        return Err(WalletError::Internal(format!(
-            "btc rpc post status {}: {}",
-            http_res.status, snippet
-        )));
-    }
-    let text = String::from_utf8(http_res.body)
-        .map_err(|err| WalletError::Internal(format!("btc rpc response is not utf8: {err}")))?;
-    Ok(text.trim().to_string())
 }
 
 fn parse_txid_hex_to_bytes(txid_hex: &str) -> WalletResult<Vec<u8>> {

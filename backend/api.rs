@@ -7,11 +7,10 @@ use crate::chains::{
 use crate::config;
 use crate::error::{WalletError, WalletResult};
 use crate::types::{
-    AddConfiguredTokenRequest, AddressResponse, BalanceRequest, BalanceResponse,
-    ConfiguredExplorerResponse, ConfiguredRpcResponse, ConfiguredTokenResponse,
-    NetworkModuleStatus, RemoveConfiguredRpcRequest, RemoveConfiguredTokenRequest,
-    ServiceInfoResponse, SetConfiguredRpcRequest, TransferRequest, TransferResponse,
-    WalletNetworkInfoResponse,
+    AddConfiguredTokenRequest, AddressResponse, ConfiguredExplorerResponse,
+    ConfiguredRpcResponse, ConfiguredTokenResponse, NetworkModuleStatus,
+    RemoveConfiguredRpcRequest, RemoveConfiguredTokenRequest, ServiceInfoResponse,
+    SetConfiguredRpcRequest, TransferRequest, TransferResponse, WalletNetworkInfoResponse,
 };
 use crate::{evm_rpc, state, token_registry};
 
@@ -273,45 +272,12 @@ fn unpause() -> WalletResult<()> {
     Ok(())
 }
 
-macro_rules! balance_update {
-    ($name:ident, $module:ident) => {
-        #[ic_cdk::update]
-        async fn $name(req: BalanceRequest) -> WalletResult<BalanceResponse> {
-            $module::get_balance(req).await
-        }
-    };
-}
-
 macro_rules! address_update {
     ($name:ident, $module:ident) => {
         #[ic_cdk::update]
         async fn $name() -> WalletResult<AddressResponse> {
             ensure_not_paused()?;
             $module::request_address().await
-        }
-    };
-}
-
-macro_rules! evm_native_balance_update {
-    ($name:ident, $network:literal) => {
-        #[ic_cdk::update]
-        async fn $name(req: BalanceRequest) -> WalletResult<BalanceResponse> {
-            if req.token.is_some() {
-                return Err(WalletError::invalid_input(concat!(
-                    stringify!($name),
-                    " does not accept token parameter"
-                )));
-            }
-            evm_rpc::get_native_eth_balance($network, req).await
-        }
-    };
-}
-
-macro_rules! evm_token_balance_update {
-    ($name:ident, $network:literal) => {
-        #[ic_cdk::update]
-        async fn $name(req: BalanceRequest) -> WalletResult<BalanceResponse> {
-            evm_rpc::get_erc20_balance($network, req).await
         }
     };
 }
@@ -356,70 +322,37 @@ address_update!(aptos_mainnet_request_address, aptos_mainnet);
 address_update!(sui_mainnet_request_address, sui_mainnet);
 
 #[ic_cdk::update]
-async fn bitcoin_get_balance_btc(req: BalanceRequest) -> WalletResult<BalanceResponse> {
-    bitcoin::get_balance(req).await
-}
-
-#[ic_cdk::update]
 async fn bitcoin_transfer_btc(req: TransferRequest) -> WalletResult<TransferResponse> {
     ensure_not_paused()?;
     bitcoin::transfer(req).await
 }
 
-evm_native_balance_update!(ethereum_get_balance_eth, "ethereum");
-evm_token_balance_update!(ethereum_get_balance_erc20, "ethereum");
 evm_native_transfer_update!(ethereum_transfer_eth, "ethereum");
 evm_token_transfer_update!(ethereum_transfer_erc20, "ethereum");
 
-evm_native_balance_update!(sepolia_get_balance_eth, "sepolia");
-evm_token_balance_update!(sepolia_get_balance_erc20, "sepolia");
 evm_native_transfer_update!(sepolia_transfer_eth, "sepolia");
 evm_token_transfer_update!(sepolia_transfer_erc20, "sepolia");
 
-evm_native_balance_update!(base_get_balance_eth, "base");
-evm_token_balance_update!(base_get_balance_erc20, "base");
 evm_native_transfer_update!(base_transfer_eth, "base");
 evm_token_transfer_update!(base_transfer_erc20, "base");
 
-evm_native_balance_update!(bsc_get_balance_bnb, "bsc");
-evm_token_balance_update!(bsc_get_balance_bep20, "bsc");
 evm_native_transfer_update!(bsc_transfer_bnb, "bsc");
 evm_token_transfer_update!(bsc_transfer_bep20, "bsc");
 
-evm_native_balance_update!(arbitrum_get_balance_eth, "arbitrum");
-evm_token_balance_update!(arbitrum_get_balance_erc20, "arbitrum");
 evm_native_transfer_update!(arbitrum_transfer_eth, "arbitrum");
 evm_token_transfer_update!(arbitrum_transfer_erc20, "arbitrum");
 
-evm_native_balance_update!(optimism_get_balance_eth, "optimism");
-evm_token_balance_update!(optimism_get_balance_erc20, "optimism");
 evm_native_transfer_update!(optimism_transfer_eth, "optimism");
 evm_token_transfer_update!(optimism_transfer_erc20, "optimism");
 
-evm_native_balance_update!(avalanche_get_balance_avax, "avalanche");
-evm_token_balance_update!(avalanche_get_balance_erc20, "avalanche");
 evm_native_transfer_update!(avalanche_transfer_avax, "avalanche");
 evm_token_transfer_update!(avalanche_transfer_erc20, "avalanche");
 
-evm_native_balance_update!(okx_get_balance_okb, "okx");
-evm_token_balance_update!(okx_get_balance_erc20, "okx");
 evm_native_transfer_update!(okx_transfer_okb, "okx");
 evm_token_transfer_update!(okx_transfer_erc20, "okx");
 
-evm_native_balance_update!(polygon_get_balance_pol, "polygon");
-evm_token_balance_update!(polygon_get_balance_erc20, "polygon");
 evm_native_transfer_update!(polygon_transfer_pol, "polygon");
 evm_token_transfer_update!(polygon_transfer_erc20, "polygon");
-
-#[ic_cdk::query(composite = true)]
-async fn internet_computer_get_balance_icp(req: BalanceRequest) -> WalletResult<BalanceResponse> {
-    internet_computer::get_balance_icp(req).await
-}
-
-#[ic_cdk::query(composite = true)]
-async fn internet_computer_get_balance_icrc(req: BalanceRequest) -> WalletResult<BalanceResponse> {
-    internet_computer::get_balance_icrc(req).await
-}
 
 #[ic_cdk::update]
 async fn internet_computer_transfer_icp(req: TransferRequest) -> WalletResult<TransferResponse> {
@@ -433,8 +366,6 @@ async fn internet_computer_transfer_icrc(req: TransferRequest) -> WalletResult<T
     internet_computer::transfer_icrc(req).await
 }
 
-balance_update!(solana_get_balance_sol, solana);
-balance_update!(solana_get_balance_spl, solana);
 #[ic_cdk::update]
 async fn solana_transfer_sol(req: TransferRequest) -> WalletResult<TransferResponse> {
     ensure_not_paused()?;
@@ -446,8 +377,6 @@ async fn solana_transfer_spl(req: TransferRequest) -> WalletResult<TransferRespo
     solana::transfer_spl(req).await
 }
 
-balance_update!(solana_testnet_get_balance_sol, solana_testnet);
-balance_update!(solana_testnet_get_balance_spl, solana_testnet);
 #[ic_cdk::update]
 async fn solana_testnet_transfer_sol(req: TransferRequest) -> WalletResult<TransferResponse> {
     ensure_not_paused()?;
@@ -457,16 +386,6 @@ async fn solana_testnet_transfer_sol(req: TransferRequest) -> WalletResult<Trans
 async fn solana_testnet_transfer_spl(req: TransferRequest) -> WalletResult<TransferResponse> {
     ensure_not_paused()?;
     solana_testnet::transfer_spl(req).await
-}
-
-#[ic_cdk::update]
-async fn tron_get_balance_trx(req: BalanceRequest) -> WalletResult<BalanceResponse> {
-    tron::get_balance(req).await
-}
-
-#[ic_cdk::update]
-async fn tron_get_balance_trc20(req: BalanceRequest) -> WalletResult<BalanceResponse> {
-    tron::get_balance(req).await
 }
 
 #[ic_cdk::update]
@@ -482,15 +401,6 @@ async fn tron_transfer_trc20(req: TransferRequest) -> WalletResult<TransferRespo
 }
 
 #[ic_cdk::update]
-async fn ton_mainnet_get_balance_ton(req: BalanceRequest) -> WalletResult<BalanceResponse> {
-    ton_mainnet::get_balance(req).await
-}
-
-#[ic_cdk::update]
-async fn ton_mainnet_get_balance_jetton(req: BalanceRequest) -> WalletResult<BalanceResponse> {
-    ton_mainnet::get_balance(req).await
-}
-#[ic_cdk::update]
 async fn ton_mainnet_transfer_ton(req: TransferRequest) -> WalletResult<TransferResponse> {
     ensure_not_paused()?;
     ton_mainnet::transfer(req).await
@@ -503,14 +413,6 @@ async fn ton_mainnet_transfer_jetton(req: TransferRequest) -> WalletResult<Trans
 }
 
 #[ic_cdk::update]
-async fn near_mainnet_get_balance_near(req: BalanceRequest) -> WalletResult<BalanceResponse> {
-    near_mainnet::get_balance(req).await
-}
-#[ic_cdk::update]
-async fn near_mainnet_get_balance_nep141(req: BalanceRequest) -> WalletResult<BalanceResponse> {
-    near_mainnet::get_balance(req).await
-}
-#[ic_cdk::update]
 async fn near_mainnet_transfer_near(req: TransferRequest) -> WalletResult<TransferResponse> {
     ensure_not_paused()?;
     near_mainnet::transfer(req).await
@@ -522,14 +424,6 @@ async fn near_mainnet_transfer_nep141(req: TransferRequest) -> WalletResult<Tran
 }
 
 #[ic_cdk::update]
-async fn aptos_mainnet_get_balance_apt(req: BalanceRequest) -> WalletResult<BalanceResponse> {
-    aptos_mainnet::get_balance(req).await
-}
-#[ic_cdk::update]
-async fn aptos_mainnet_get_balance_token(req: BalanceRequest) -> WalletResult<BalanceResponse> {
-    aptos_mainnet::get_balance(req).await
-}
-#[ic_cdk::update]
 async fn aptos_mainnet_transfer_apt(req: TransferRequest) -> WalletResult<TransferResponse> {
     ensure_not_paused()?;
     aptos_mainnet::transfer(req).await
@@ -540,14 +434,6 @@ async fn aptos_mainnet_transfer_token(req: TransferRequest) -> WalletResult<Tran
     aptos_mainnet::transfer(req).await
 }
 
-#[ic_cdk::update]
-async fn sui_mainnet_get_balance_sui(req: BalanceRequest) -> WalletResult<BalanceResponse> {
-    sui_mainnet::get_balance(req).await
-}
-#[ic_cdk::update]
-async fn sui_mainnet_get_balance_token(req: BalanceRequest) -> WalletResult<BalanceResponse> {
-    sui_mainnet::get_balance(req).await
-}
 #[ic_cdk::update]
 async fn sui_mainnet_transfer_sui(req: TransferRequest) -> WalletResult<TransferResponse> {
     ensure_not_paused()?;

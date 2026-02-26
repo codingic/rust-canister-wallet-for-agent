@@ -8,8 +8,8 @@ use crate::config;
 use crate::error::{WalletError, WalletResult};
 use crate::sdk::sol_tx;
 use crate::types::{
-    self, AddressResponse, BalanceRequest, BalanceResponse, ConfiguredTokenResponse,
-    TransferRequest, TransferResponse,
+    self, AddressResponse, BalanceRequest, BalanceResponse, BroadcastHttpRequest,
+    ConfiguredTokenResponse, TransferRequest, TransferResponse,
 };
 
 const NETWORK_NAME: &str = types::networks::SOLANA;
@@ -218,7 +218,7 @@ pub async fn transfer_sol_for_network(
 
     let to_pubkey = decode_solana_pubkey(&req.to)?;
     let recent_blockhash = fetch_recent_blockhash(network_name).await?;
-    let message = encode_system_transfer_message(
+    let message = sol_tx::encode_system_transfer_message(
         &from_pubkey,
         &to_pubkey,
         &recent_blockhash,
@@ -232,14 +232,21 @@ pub async fn transfer_sol_for_network(
         )));
     }
 
-    let raw_tx = encode_signed_transaction(&signature, &message);
-    let tx_sig = send_raw_transaction(network_name, &raw_tx).await?;
+    let raw_tx = sol_tx::encode_signed_transaction(&signature, &message);
+    let tx_sig = addressing::base58_encode(&signature);
+    let (raw_tx_b64, broadcast_request) =
+        build_send_raw_transaction_request(network_name, &raw_tx)?;
 
     Ok(TransferResponse {
         network: network_name.to_string(),
-        accepted: true,
+        accepted: false,
         tx_id: Some(tx_sig.clone()),
-        message: format!("broadcasted raw transaction via sendTransaction: {tx_sig}"),
+        signed_tx: Some(raw_tx_b64),
+        signed_tx_encoding: Some("base64".to_string()),
+        broadcast_request: Some(broadcast_request),
+        message: format!(
+            "signed Solana transaction prepared; frontend should broadcast via sendTransaction: {tx_sig}"
+        ),
     })
 }
 
@@ -290,12 +297,12 @@ pub async fn transfer_spl_for_network(
         {
             Some(account) => (account, false),
             None => (
-                derive_associated_token_address(&destination_owner, &mint)?,
+                sol_tx::derive_associated_token_address(&destination_owner, &mint)?,
                 true,
             ),
         };
     let recent_blockhash = fetch_recent_blockhash(network_name).await?;
-    let message = encode_spl_transfer_checked_message(
+    let message = sol_tx::encode_spl_transfer_checked_message(
         &owner_pubkey,
         &source_token_account,
         &dest_token_account,
@@ -313,14 +320,21 @@ pub async fn transfer_spl_for_network(
             signature.len()
         )));
     }
-    let raw_tx = encode_signed_transaction(&signature, &message);
-    let tx_sig = send_raw_transaction(network_name, &raw_tx).await?;
+    let raw_tx = sol_tx::encode_signed_transaction(&signature, &message);
+    let tx_sig = addressing::base58_encode(&signature);
+    let (raw_tx_b64, broadcast_request) =
+        build_send_raw_transaction_request(network_name, &raw_tx)?;
 
     Ok(TransferResponse {
         network: network_name.to_string(),
-        accepted: true,
+        accepted: false,
         tx_id: Some(tx_sig.clone()),
-        message: format!("broadcasted SPL transfer via sendTransaction: {tx_sig}"),
+        signed_tx: Some(raw_tx_b64),
+        signed_tx_encoding: Some("base64".to_string()),
+        broadcast_request: Some(broadcast_request),
+        message: format!(
+            "signed SPL transfer prepared; frontend should broadcast via sendTransaction: {tx_sig}"
+        ),
     })
 }
 
@@ -400,24 +414,39 @@ async fn sign_solana_message(message: &[u8]) -> WalletResult<Vec<u8>> {
     Ok(res.signature)
 }
 
-async fn send_raw_transaction(network_name: &str, raw_tx: &[u8]) -> WalletResult<String> {
+fn build_send_raw_transaction_request(
+    network_name: &str,
+    raw_tx: &[u8],
+) -> WalletResult<(String, BroadcastHttpRequest)> {
     let raw_base64 = base64_encode(raw_tx);
-    let tx_sig_value = solana_rpc_call(
-        network_name,
-        "sendTransaction",
-        json!([
-            raw_base64,
+    let rpc_url = config::rpc_config::resolve_rpc_url(network_name, None)
+        .map_err(|err| WalletError::Internal(format!("rpc url resolution failed: {err}")))?;
+    let body = serde_json::to_string(&SolanaJsonRpcRequest {
+        jsonrpc: "2.0",
+        method: "sendTransaction",
+        params: json!([
+            raw_base64.clone(),
             {
                 "encoding": "base64",
                 "preflightCommitment": "confirmed"
             }
         ]),
-    )
-    .await?;
-    let tx_sig = tx_sig_value.as_str().ok_or_else(|| {
-        WalletError::Internal("solana rpc sendTransaction result is not string".into())
-    })?;
-    Ok(tx_sig.to_string())
+        id: 1,
+    })
+    .map_err(|err| WalletError::Internal(format!("serialize solana rpc request failed: {err}")))?;
+
+    Ok((
+        raw_base64,
+        BroadcastHttpRequest {
+            url: rpc_url,
+            method: "POST".to_string(),
+            headers: vec![
+                ("content-type".to_string(), "application/json".to_string()),
+                ("accept".to_string(), "application/json".to_string()),
+            ],
+            body: Some(body),
+        },
+    ))
 }
 
 async fn fetch_spl_decimals(network_name: &str, mint: &[u8; 32]) -> WalletResult<u8> {
@@ -544,47 +573,6 @@ fn format_u64_units(amount: u64, decimals: u8) -> String {
 
 fn decode_solana_pubkey(value: &str) -> WalletResult<[u8; 32]> {
     sol_tx::decode_solana_pubkey(value)
-}
-
-fn encode_system_transfer_message(
-    from_pubkey: &[u8; 32],
-    to_pubkey: &[u8; 32],
-    recent_blockhash: &[u8; 32],
-    lamports: u64,
-) -> Vec<u8> {
-    sol_tx::encode_system_transfer_message(from_pubkey, to_pubkey, recent_blockhash, lamports)
-}
-
-fn encode_signed_transaction(signature: &[u8], message: &[u8]) -> Vec<u8> {
-    sol_tx::encode_signed_transaction(signature, message)
-}
-
-fn encode_spl_transfer_checked_message(
-    owner_pubkey: &[u8; 32],
-    source_token_account: &[u8; 32],
-    dest_token_account: &[u8; 32],
-    destination_owner: &[u8; 32],
-    mint: &[u8; 32],
-    recent_blockhash: &[u8; 32],
-    amount_raw: u64,
-    decimals: u8,
-    create_destination_ata: bool,
-) -> WalletResult<Vec<u8>> {
-    sol_tx::encode_spl_transfer_checked_message(
-        owner_pubkey,
-        source_token_account,
-        dest_token_account,
-        destination_owner,
-        mint,
-        recent_blockhash,
-        amount_raw,
-        decimals,
-        create_destination_ata,
-    )
-}
-
-fn derive_associated_token_address(owner: &[u8; 32], mint: &[u8; 32]) -> WalletResult<[u8; 32]> {
-    sol_tx::derive_associated_token_address(owner, mint)
 }
 
 fn parse_decimal_lamports(value: &str) -> WalletResult<u64> {

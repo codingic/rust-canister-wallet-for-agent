@@ -50,7 +50,7 @@ near 未测
 - `aptos_mainnet`
 - `sui_mainnet`
 
-说明：链相关接口已统一按“网络名字（下划线化）”命名，例如 `ethereum_get_balance_eth`、`solana_get_balance_sol`。
+说明：链相关接口命名统一按“网络名字（下划线化）”风格，例如 `ethereum_transfer_eth`、`solana_request_address`。
 
 ## 地址申请（真实实现）
 
@@ -87,10 +87,12 @@ near 未测
 
 ## 接口命名规则（显式）
 
-- 余额：`<network_prefix>_get_balance_<asset_kind>`
-- 转账：`<network_prefix>_transfer_<asset_kind>`
+- 地址申请（后端 canister）：`<network_prefix>_request_address`
+- 转账（后端 canister）：`<network_prefix>_transfer_<asset_kind>`
+- 余额（`allchain-api-jssdk`）：`<network_prefix>_get_balance_<asset_kind>`
 
 这样可以避免一个接口同时承担原生币与 token 资产的歧义。
+说明：后端对外 `*_get_balance_*` 接口已移除，Agent 应通过 `allchain-api-jssdk` 查询余额。
 
 
 ## JS Agent 技能（Skill）与 SDK
@@ -98,12 +100,14 @@ near 未测
 仓库内提供给其他 JS/TS Agent 使用本工程的技能文档与独立 SDK：
 
 - `skills/canister-wallet-js-usage-for-agent.md`
-- `js-sdk-for-agent/`
+- `deploy-canister-js-sdk-for-agent/`（部署与后端 canister 交互 SDK）
+- `allchain-api-jssdk/`（链侧余额查询 SDK）
 
 内容包括：
 
-- 优先使用 `js-sdk-for-agent`（封装 Actor 创建、Result 解包、动态方法名构建）
-- `js-sdk-for-agent/examples/*` 示例脚本（快速连通 / 发送 ETH / 添加 Token）
+- 使用 `deploy-canister-js-sdk-for-agent`（封装 Actor 创建、Result 解包、动态方法名构建）
+- `deploy-canister-js-sdk-for-agent/examples/*` 示例脚本（快速连通 / 发送 ETH / 添加 Token）
+- 使用 `allchain-api-jssdk` 查询各链余额（方法名统一：`<network_prefix>_get_balance_<asset_kind>`）
 - 必要时使用 `src/declarations/backend` 创建 `@dfinity/agent` Actor（raw fallback）
 - `Result`（`Ok/Err`）返回值解析模式
 - 基于 `wallet_networks()` 的 `shared_address_group` 做地址共享判断（例如 EVM 同地址）
@@ -115,11 +119,11 @@ near 未测
 
 仓库已提供一套 JS 脚本骨架，支持 OpenClaw 自己生成身份、请求 `canister-factory` canister 创建 backend canister、安装 `backend.wasm`、并在生产模式首次自举 `owner`：
 
-- `js-sdk-for-agent/examples/bootstrap-openclaw-backend.js`（一体化流程）
-- `js-sdk-for-agent/examples/deploy-backend-canister.js`（仅安装/升级已有 canister）
-- `js-sdk-for-agent/src/identity-file.js`（加密 identity 文件，文本文件不包含明文私钥）
-- `js-sdk-for-agent/src/canister-factory.js`（调用 `canister-factory` canister 创建 canister）
-- `js-sdk-for-agent/src/deployer.js`（管理 canister install/upgrade/update_settings 封装）
+- `deploy-canister-js-sdk-for-agent/examples/bootstrap-openclaw-backend.js`（一体化流程）
+- `deploy-canister-js-sdk-for-agent/examples/deploy-backend-canister.js`（仅安装/升级已有 canister）
+- `deploy-canister-js-sdk-for-agent/src/identity-file.js`（加密 identity 文件，文本文件不包含明文私钥）
+- `deploy-canister-js-sdk-for-agent/src/canister-factory.js`（调用 `canister-factory` canister 创建 canister）
+- `deploy-canister-js-sdk-for-agent/src/deployer.js`（管理 canister install/upgrade/update_settings 封装）
 
 流程（最简单可跑版本）：
 
@@ -149,7 +153,7 @@ near 未测
 CANISTER_FACTORY_CANISTER_ID=<canister_factory_canister_id> \
 IC_HOST=https://icp-api.io \
 WASM_PATH=./target/wasm32-unknown-unknown/release/backend.wasm \
-node js-sdk-for-agent/examples/bootstrap-openclaw-backend.js
+node deploy-canister-js-sdk-for-agent/examples/bootstrap-openclaw-backend.js
 ```
 
 脚本会在本地保存：
@@ -178,7 +182,29 @@ node js-sdk-for-agent/examples/bootstrap-openclaw-backend.js
 - 使用 management canister `create_canister_with_extra_cycles`
 - `controllers = [caller()]`（不信任客户端传 controller）
 - 内置基础配额、开关、统计，并支持 stable upgrade 持久化
-- 与 `js-sdk-for-agent/examples/bootstrap-openclaw-backend.js` 直接对接
+- 与 `deploy-canister-js-sdk-for-agent/examples/bootstrap-openclaw-backend.js` 直接对接
+
+## allchain-api-jssdk（余额查询 SDK）
+
+新增 `allchain-api-jssdk/`，专门给 JS Agent 查询各链余额使用。
+
+特点：
+
+- 按功能模块拆分：`config / core / chains / utils`
+- 方法名统一：`<network_prefix>_get_balance_<asset_kind>`
+- 覆盖 EVM、Bitcoin、ICP/ICRC、Solana/SPL、TRON/TRC20、TON/Jetton、NEAR/NEP-141、Aptos、Sui
+- 返回字段尽量对齐原后端 `BalanceResponse` 结构（`network/account/token/amount/decimals/message`）
+
+示例：
+
+```js
+import { createAllChainApiClient } from './allchain-api-jssdk/src/index.js';
+
+const chainApi = createAllChainApiClient();
+const eth = await chainApi.ethereum_get_balance_eth({
+  account: '0x0000000000000000000000000000000000000000'
+});
+```
 
 ## 构建与部署
 
@@ -217,7 +243,10 @@ dfx deploy frontend
 
 ## 当前状态说明
 
-- 多链地址申请、余额查询、发送接口已经统一到 `backend/api.rs`
+- 多链地址申请、转账、配置接口统一在 `backend/api.rs`
+- 多链余额查询逻辑实现保留在各链模块（后端对外 `*_get_balance_*` API 已移除）
+- Agent 余额查询应使用 `allchain-api-jssdk`
 - 外部 HTTP RPC 统一从 `backend/outcall.rs` 走，便于后续加重试/transform/审计
 - 网络名统一使用 `types::networks::*` 常量
 - EVM 系网络共享地址组信息通过 `wallet_networks()` 对外暴露（供 agent 直接消费）
+- 前端已按模块拆分（`frontend/src/config`、`frontend/src/api`、`frontend/src/components`）

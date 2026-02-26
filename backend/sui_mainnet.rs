@@ -10,8 +10,8 @@ use crate::config;
 use crate::error::{WalletError, WalletResult};
 use crate::sdk::evm_tx;
 use crate::types::{
-    self, AddressResponse, BalanceRequest, BalanceResponse, ConfiguredTokenResponse,
-    TransferRequest, TransferResponse,
+    self, AddressResponse, BalanceRequest, BalanceResponse, BroadcastHttpRequest,
+    ConfiguredTokenResponse, TransferRequest, TransferResponse,
 };
 
 const NETWORK_NAME: &str = types::networks::SUI_MAINNET;
@@ -153,45 +153,39 @@ pub async fn transfer(req: TransferRequest) -> WalletResult<TransferResponse> {
     sui_sig.extend_from_slice(&managed.pubkey);
     let sui_sig_b64 = base64_encode_std(&sui_sig);
 
-    let exec = sui_rpc_call(
-        "sui_executeTransactionBlock",
-        json!([
-            tx_bytes_b64,
-            [sui_sig_b64],
-            { "showEffects": true },
-            "WaitForLocalExecution"
-        ]),
-    )
-    .await?;
-    if let Some(status) = exec
-        .get("effects")
-        .and_then(|e| e.get("status"))
-        .and_then(|s| s.get("status"))
-        .and_then(Value::as_str)
-    {
-        if status != "success" {
-            let err_text = exec
-                .get("effects")
-                .and_then(|e| e.get("status"))
-                .and_then(|s| s.get("error"))
-                .and_then(Value::as_str)
-                .unwrap_or("unknown error");
-            return Err(WalletError::Internal(format!(
-                "Sui executeTransactionBlock failed: {err_text}"
-            )));
-        }
-    }
-    let tx_id = exec
-        .get("digest")
-        .and_then(Value::as_str)
-        .map(ToString::to_string);
+    let params = json!([
+        tx_bytes_b64.clone(),
+        [sui_sig_b64],
+        { "showEffects": true },
+        "WaitForLocalExecution"
+    ]);
+    let base = config::rpc_config::resolve_rpc_url(NETWORK_NAME, None)
+        .map_err(|e| WalletError::Internal(format!("sui rpc url resolution failed: {e}")))?;
+    let broadcast_body = serde_json::to_string(&json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "sui_executeTransactionBlock",
+        "params": params
+    }))
+    .map_err(|e| WalletError::Internal(format!("serialize sui rpc body failed: {e}")))?;
     Ok(TransferResponse {
         network: NETWORK_NAME.to_string(),
-        accepted: true,
-        tx_id: tx_id.clone(),
-        message: tx_id
-            .map(|h| format!("Sui executeTransactionBlock accepted: {h}"))
-            .unwrap_or_else(|| "Sui executeTransactionBlock accepted".to_string()),
+        accepted: false,
+        tx_id: None,
+        signed_tx: Some(tx_bytes_b64),
+        signed_tx_encoding: Some("base64".to_string()),
+        broadcast_request: Some(BroadcastHttpRequest {
+            url: base,
+            method: "POST".to_string(),
+            headers: vec![
+                ("content-type".to_string(), "application/json".to_string()),
+                ("accept".to_string(), "application/json".to_string()),
+            ],
+            body: Some(broadcast_body),
+        }),
+        message:
+            "signed Sui transaction prepared; frontend should call sui_executeTransactionBlock"
+                .to_string(),
     })
 }
 

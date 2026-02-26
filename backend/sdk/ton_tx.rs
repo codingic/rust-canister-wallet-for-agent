@@ -742,7 +742,7 @@ fn minimal_be_bytes_len(value: u64) -> usize {
         5
     } else if value <= 0xffff_ffff_ffff {
         6
-    } else if value <= 0xff_ff_ff_ff_ff_ff {
+    } else if value <= 0xff_ff_ff_ff_ff_ff_ff {
         7
     } else {
         8

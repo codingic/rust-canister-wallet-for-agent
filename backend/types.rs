@@ -112,7 +112,18 @@ pub struct TransferResponse {
     pub network: Network,
     pub accepted: bool,
     pub tx_id: Option<String>,
+    pub signed_tx: Option<String>,
+    pub signed_tx_encoding: Option<String>,
+    pub broadcast_request: Option<BroadcastHttpRequest>,
     pub message: String,
+}
+
+#[derive(CandidType, Deserialize, Clone, Debug)]
+pub struct BroadcastHttpRequest {
+    pub url: String,
+    pub method: String,
+    pub headers: Vec<(String, String)>,
+    pub body: Option<String>,
 }
 
 #[derive(CandidType, Deserialize, Clone, Debug)]

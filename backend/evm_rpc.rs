@@ -13,12 +13,19 @@ use crate::config;
 use crate::error::{WalletError, WalletResult};
 use crate::sdk::evm_tx;
 use crate::types::{
-    BalanceRequest, BalanceResponse, ConfiguredTokenResponse, TransferRequest, TransferResponse,
+    BalanceRequest, BalanceResponse, BroadcastHttpRequest, ConfiguredTokenResponse,
+    TransferRequest, TransferResponse,
 };
 
 const EVM_NATIVE_DECIMALS: usize = 18;
 const EVM_NATIVE_GAS_LIMIT: u64 = 21_000;
 const EVM_ERC20_GAS_LIMIT_DEFAULT: u64 = 120_000;
+
+struct PreparedEvmBroadcast {
+    tx_id: String,
+    raw_tx_hex: String,
+    broadcast_request: BroadcastHttpRequest,
+}
 
 #[derive(Serialize)]
 struct JsonRpcRequest {
@@ -142,7 +149,7 @@ pub async fn transfer_native_eth(
     }
     let to_bytes = hex_address_to_20_bytes(&to)?;
 
-    let tx_id = send_eip1559_transaction(
+    let prepared = prepare_eip1559_transaction(
         network,
         req.from.as_deref(),
         &to_bytes,
@@ -154,9 +161,15 @@ pub async fn transfer_native_eth(
 
     Ok(TransferResponse {
         network: network.to_string(),
-        accepted: true,
-        tx_id: Some(tx_id.clone()),
-        message: format!("broadcasted raw transaction via eth_sendRawTransaction: {tx_id}"),
+        accepted: false,
+        tx_id: Some(prepared.tx_id.clone()),
+        signed_tx: Some(prepared.raw_tx_hex),
+        signed_tx_encoding: Some("hex".to_string()),
+        broadcast_request: Some(prepared.broadcast_request),
+        message: format!(
+            "signed EIP-1559 transaction prepared; frontend should broadcast via eth_sendRawTransaction: {}",
+            prepared.tx_id
+        ),
     })
 }
 
@@ -178,7 +191,7 @@ pub async fn transfer_erc20(network: &str, req: TransferRequest) -> WalletResult
     }
 
     let data = evm_tx::encode_erc20_transfer_call(&to_bytes, &amount_units)?;
-    let tx_id = send_eip1559_transaction(
+    let prepared = prepare_eip1559_transaction(
         network,
         req.from.as_deref(),
         &token_contract_bytes,
@@ -190,20 +203,26 @@ pub async fn transfer_erc20(network: &str, req: TransferRequest) -> WalletResult
 
     Ok(TransferResponse {
         network: network.to_string(),
-        accepted: true,
-        tx_id: Some(tx_id.clone()),
-        message: format!("broadcasted ERC20 transfer via eth_sendRawTransaction: {tx_id}"),
+        accepted: false,
+        tx_id: Some(prepared.tx_id.clone()),
+        signed_tx: Some(prepared.raw_tx_hex),
+        signed_tx_encoding: Some("hex".to_string()),
+        broadcast_request: Some(prepared.broadcast_request),
+        message: format!(
+            "signed ERC20 transfer prepared; frontend should broadcast via eth_sendRawTransaction: {}",
+            prepared.tx_id
+        ),
     })
 }
 
-async fn send_eip1559_transaction(
+async fn prepare_eip1559_transaction(
     network: &str,
     from_override: Option<&str>,
     to_bytes: &[u8; 20],
     value: &BigUint,
     data: &[u8],
     gas_limit: &BigUint,
-) -> WalletResult<String> {
+) -> WalletResult<PreparedEvmBroadcast> {
     let (public_key_bytes, _key_name) = addressing::fetch_ecdsa_secp256k1_public_key().await?;
     let from_address = evm_address_from_sec1_public_key(&public_key_bytes)?;
     if let Some(from) = from_override {
@@ -273,8 +292,33 @@ async fn send_eip1559_transaction(
         &s,
     );
     let raw_tx_hex = format!("0x{}", addressing::hex_encode(&signed_raw));
+    let tx_hash = format!(
+        "0x{}",
+        addressing::hex_encode(&evm_tx::keccak256(&signed_raw))
+    );
+    let rpc_url = config::rpc_config::resolve_rpc_url(network, None)
+        .map_err(|err| WalletError::Internal(format!("rpc url resolution failed: {err}")))?;
+    let broadcast_body = serde_json::to_string(&JsonRpcRequest {
+        jsonrpc: "2.0",
+        method: "eth_sendRawTransaction".to_string(),
+        params: json!([raw_tx_hex.clone()]),
+        id: 1,
+    })
+    .map_err(|err| WalletError::Internal(format!("serialize rpc request failed: {err}")))?;
 
-    rpc_call_hex_string(network, "eth_sendRawTransaction", json!([raw_tx_hex])).await
+    Ok(PreparedEvmBroadcast {
+        tx_id: tx_hash,
+        raw_tx_hex,
+        broadcast_request: BroadcastHttpRequest {
+            url: rpc_url,
+            method: "POST".to_string(),
+            headers: vec![
+                ("content-type".to_string(), "application/json".to_string()),
+                ("accept".to_string(), "application/json".to_string()),
+            ],
+            body: Some(broadcast_body),
+        },
+    })
 }
 
 async fn fetch_eip1559_fees(network: &str) -> WalletResult<(BigUint, BigUint)> {

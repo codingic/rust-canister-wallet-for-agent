@@ -10,8 +10,8 @@ use crate::config;
 use crate::error::{WalletError, WalletResult};
 use crate::sdk::{evm_tx, ton_tx};
 use crate::types::{
-    self, AddressResponse, BalanceRequest, BalanceResponse, ConfiguredTokenResponse,
-    TransferRequest, TransferResponse,
+    self, AddressResponse, BalanceRequest, BalanceResponse, BroadcastHttpRequest,
+    ConfiguredTokenResponse, TransferRequest, TransferResponse,
 };
 
 const NETWORK_NAME: &str = types::networks::TON_MAINNET;
@@ -132,7 +132,7 @@ pub async fn transfer(req: TransferRequest) -> WalletResult<TransferResponse> {
         .map(str::trim)
         .filter(|s| !s.is_empty());
     let out_msg = if token_opt.is_none() {
-        build_ton_native_transfer_message(&managed, &req).await?
+        build_ton_native_transfer_message(&req)?
     } else {
         build_ton_jetton_transfer_message(&managed, &req).await?
     };
@@ -157,34 +157,30 @@ pub async fn transfer(req: TransferRequest) -> WalletResult<TransferResponse> {
     };
     let ext_message = ton_tx::build_external_message(&managed.address, body, state_init)?;
     let boc_b64 = ton_tx::cell_to_boc_base64(&ext_message)?;
-    let send_res = ton_v2_post_json("/sendBocReturnHash", json!({ "boc": boc_b64 })).await;
-    let (tx_id, message) = match send_res {
-        Ok(v) => {
-            let hash = extract_send_boc_hash(&v).unwrap_or_else(|| String::from("accepted"));
-            (
-                Some(hash.clone()),
-                format!("TON sendBocReturnHash accepted: {hash}"),
-            )
-        }
-        Err(primary_err) => {
-            // Fallback for providers that don't expose sendBocReturnHash.
-            ton_v2_post_json("/sendBoc", json!({ "boc": boc_b64 }))
-                .await
-                .map_err(|fallback_err| {
-                    WalletError::Internal(format!(
-                        "TON sendBocReturnHash failed: {:?}; sendBoc failed: {:?}",
-                        primary_err, fallback_err
-                    ))
-                })?;
-            (None, "TON sendBoc accepted".to_string())
-        }
-    };
+    let ext_hash = ton_tx::cell_hash(&ext_message);
+    let tx_id = Some(ton_tx::hex_encode(&ext_hash));
+    let broadcast_body =
+        serde_json::to_string(&json!({ "boc": boc_b64.clone() })).map_err(|err| {
+            WalletError::Internal(format!("serialize TON sendBoc body failed: {err}"))
+        })?;
+    let broadcast_url = ton_v2_url("/sendBocReturnHash")?;
 
     Ok(TransferResponse {
         network: NETWORK_NAME.to_string(),
-        accepted: true,
+        accepted: false,
         tx_id,
-        message,
+        signed_tx: Some(boc_b64),
+        signed_tx_encoding: Some("base64".to_string()),
+        broadcast_request: Some(BroadcastHttpRequest {
+            url: broadcast_url,
+            method: "POST".to_string(),
+            headers: vec![
+                ("content-type".to_string(), "application/json".to_string()),
+                ("accept".to_string(), "application/json".to_string()),
+            ],
+            body: Some(broadcast_body),
+        }),
+        message: "signed TON message BOC prepared; frontend should broadcast via /sendBocReturnHash (fallback /sendBoc may be needed on some providers)".to_string(),
     })
 }
 
@@ -288,10 +284,7 @@ async fn fetch_wallet_state(address: &ton_tx::TonAddress) -> WalletResult<TonWal
     Ok(TonWalletState { seqno, active })
 }
 
-async fn build_ton_native_transfer_message(
-    _managed: &ManagedTonWallet,
-    req: &TransferRequest,
-) -> WalletResult<ton_tx::Cell> {
+fn build_ton_native_transfer_message(req: &TransferRequest) -> WalletResult<ton_tx::Cell> {
     let to_addr = ton_tx::parse_ton_address(&req.to)?;
     let amount = evm_tx::parse_decimal_units(req.amount.trim(), usize::from(TON_DECIMALS))?;
     if amount == BigUint::from(0u8) {
@@ -516,24 +509,6 @@ async fn sign_ton_hash(message_hash32: &[u8; 32]) -> WalletResult<Vec<u8>> {
     Ok(res.signature)
 }
 
-fn extract_send_boc_hash(payload: &Value) -> Option<String> {
-    payload
-        .get("result")
-        .and_then(|r| {
-            r.as_str().map(ToString::to_string).or_else(|| {
-                r.get("hash")
-                    .and_then(Value::as_str)
-                    .map(ToString::to_string)
-            })
-        })
-        .or_else(|| {
-            payload
-                .get("hash")
-                .and_then(Value::as_str)
-                .map(ToString::to_string)
-        })
-}
-
 async fn ton_v2_get_json(path: &str) -> WalletResult<Value> {
     let payload = ton_http_json(ton_v2_url(path)?, HttpMethod::GET, None).await?;
     ton_check_ok_wrapper(payload)
@@ -541,11 +516,6 @@ async fn ton_v2_get_json(path: &str) -> WalletResult<Value> {
 
 async fn ton_v2_get_json_allow_rpc_not_ok(path: &str) -> WalletResult<Value> {
     ton_http_json(ton_v2_url(path)?, HttpMethod::GET, None).await
-}
-
-async fn ton_v2_post_json(path: &str, body: Value) -> WalletResult<Value> {
-    let payload = ton_http_json(ton_v2_url(path)?, HttpMethod::POST, Some(body)).await?;
-    ton_check_ok_wrapper(payload)
 }
 
 async fn ton_v3_get_json(path: &str) -> WalletResult<Value> {

@@ -19,10 +19,10 @@ use error::WalletResult;
 #[allow(unused_imports)]
 use types::{
     AddConfiguredTokenRequest, AddressResponse, BalanceRequest, BalanceResponse,
-    ConfiguredExplorerResponse, ConfiguredRpcResponse, ConfiguredTokenResponse,
-    NetworkModuleStatus, RemoveConfiguredRpcRequest, RemoveConfiguredTokenRequest,
-    ServiceInfoResponse, SetConfiguredRpcRequest, TransferRequest, TransferResponse,
-    WalletNetworkInfoResponse,
+    BroadcastHttpRequest, ConfiguredExplorerResponse, ConfiguredRpcResponse,
+    ConfiguredTokenResponse, NetworkModuleStatus, RemoveConfiguredRpcRequest,
+    RemoveConfiguredTokenRequest, ServiceInfoResponse, SetConfiguredRpcRequest, TransferRequest,
+    TransferResponse, WalletNetworkInfoResponse,
 };
 
 ic_cdk::export_candid!();

@@ -150,54 +150,6 @@ pub fn keccak256(data: &[u8]) -> [u8; 32] {
     out
 }
 
-#[allow(dead_code)]
-pub fn rlp_encode_legacy_unsigned(
-    nonce: &BigUint,
-    gas_price: &BigUint,
-    gas_limit: &BigUint,
-    to: &[u8; 20],
-    value: &BigUint,
-    data: &[u8],
-    chain_id: u64,
-) -> Vec<u8> {
-    rlp_encode_list(&[
-        rlp_encode_biguint(nonce),
-        rlp_encode_biguint(gas_price),
-        rlp_encode_biguint(gas_limit),
-        rlp_encode_bytes(to),
-        rlp_encode_biguint(value),
-        rlp_encode_bytes(data),
-        rlp_encode_u64(chain_id),
-        rlp_encode_u64(0),
-        rlp_encode_u64(0),
-    ])
-}
-
-#[allow(dead_code)]
-pub fn rlp_encode_legacy_signed(
-    nonce: &BigUint,
-    gas_price: &BigUint,
-    gas_limit: &BigUint,
-    to: &[u8; 20],
-    value: &BigUint,
-    data: &[u8],
-    v: &BigUint,
-    r: &BigUint,
-    s: &BigUint,
-) -> Vec<u8> {
-    rlp_encode_list(&[
-        rlp_encode_biguint(nonce),
-        rlp_encode_biguint(gas_price),
-        rlp_encode_biguint(gas_limit),
-        rlp_encode_bytes(to),
-        rlp_encode_biguint(value),
-        rlp_encode_bytes(data),
-        rlp_encode_biguint(v),
-        rlp_encode_biguint(r),
-        rlp_encode_biguint(s),
-    ])
-}
-
 pub fn rlp_encode_eip1559_unsigned(
     chain_id: u64,
     nonce: &BigUint,

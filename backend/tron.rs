@@ -13,8 +13,8 @@ use crate::config;
 use crate::error::{WalletError, WalletResult};
 use crate::sdk::evm_tx;
 use crate::types::{
-    self, AddressResponse, BalanceRequest, BalanceResponse, ConfiguredTokenResponse,
-    TransferRequest, TransferResponse,
+    self, AddressResponse, BalanceRequest, BalanceResponse, BroadcastHttpRequest,
+    ConfiguredTokenResponse, TransferRequest, TransferResponse,
 };
 
 const NETWORK_NAME: &str = types::networks::TRON;
@@ -138,33 +138,29 @@ pub async fn transfer(req: TransferRequest) -> WalletResult<TransferResponse> {
     let signature_hex = sign_tron_txid(&txid_bytes, &pubkey, &key_name).await?;
     tx["signature"] = Value::Array(vec![Value::String(signature_hex)]);
 
-    let broadcast = tron_post_json("wallet/broadcasttransaction", tx).await?;
-    let accepted = broadcast
-        .get("result")
-        .and_then(Value::as_bool)
-        .unwrap_or(false);
-    if !accepted {
-        let msg = broadcast
-            .get("message")
-            .and_then(Value::as_str)
-            .map(|s| decode_hex_or_passthrough(s))
-            .unwrap_or_else(|| broadcast.to_string());
-        return Err(WalletError::Internal(format!(
-            "TRON broadcasttransaction rejected: {msg}"
-        )));
-    }
-
-    let txid = broadcast
-        .get("txid")
-        .and_then(Value::as_str)
-        .unwrap_or(&txid_hex)
-        .to_string();
+    let txid = txid_hex.clone();
+    let signed_tx_json = serde_json::to_string(&tx)
+        .map_err(|err| WalletError::Internal(format!("serialize signed TRON tx failed: {err}")))?;
+    let broadcast_url = tron_rpc_url("wallet/broadcasttransaction")?;
 
     Ok(TransferResponse {
         network: NETWORK_NAME.to_string(),
-        accepted: true,
+        accepted: false,
         tx_id: Some(txid.clone()),
-        message: format!("TRON broadcasttransaction accepted: {txid}"),
+        signed_tx: Some(signed_tx_json.clone()),
+        signed_tx_encoding: Some("json".to_string()),
+        broadcast_request: Some(BroadcastHttpRequest {
+            url: broadcast_url,
+            method: "POST".to_string(),
+            headers: vec![
+                ("content-type".to_string(), "application/json".to_string()),
+                ("accept".to_string(), "application/json".to_string()),
+            ],
+            body: Some(signed_tx_json),
+        }),
+        message: format!(
+            "signed TRON transaction prepared; frontend should broadcast via wallet/broadcasttransaction: {txid}"
+        ),
     })
 }
 
@@ -639,6 +635,12 @@ async fn tron_post_json(path: &str, body: Value) -> WalletResult<Value> {
     }
     serde_json::from_slice::<Value>(&http_res.body)
         .map_err(|err| WalletError::Internal(format!("parse trx rpc response failed: {err}")))
+}
+
+fn tron_rpc_url(path: &str) -> WalletResult<String> {
+    let rpc_url = config::rpc_config::resolve_rpc_url(NETWORK_NAME, None)
+        .map_err(|err| WalletError::Internal(format!("trx rpc url resolution failed: {err}")))?;
+    Ok(format!("{}/{}", rpc_url.trim_end_matches('/'), path))
 }
 
 fn parse_u64_amount(value: &str, decimals: u8) -> WalletResult<u64> {

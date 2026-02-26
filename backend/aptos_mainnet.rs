@@ -11,8 +11,8 @@ use crate::config;
 use crate::error::{WalletError, WalletResult};
 use crate::sdk::evm_tx;
 use crate::types::{
-    self, AddressResponse, BalanceRequest, BalanceResponse, ConfiguredTokenResponse,
-    TransferRequest, TransferResponse,
+    self, AddressResponse, BalanceRequest, BalanceResponse, BroadcastHttpRequest,
+    ConfiguredTokenResponse, TransferRequest, TransferResponse,
 };
 
 const NETWORK_NAME: &str = types::networks::APTOS_MAINNET;
@@ -173,18 +173,29 @@ pub async fn transfer(req: TransferRequest) -> WalletResult<TransferResponse> {
         "signature": format!("0x{}", addressing::hex_encode(&signature)),
     });
 
-    let submit_resp = aptos_post_json("/transactions", submit_req).await?;
-    let tx_hash = submit_resp
-        .get("hash")
-        .and_then(Value::as_str)
-        .map(ToString::to_string);
+    let signed_submit_json = serde_json::to_string(&submit_req).map_err(|err| {
+        WalletError::Internal(format!("serialize aptos submit body failed: {err}"))
+    })?;
+    let base = config::rpc_config::resolve_rpc_url(NETWORK_NAME, None)
+        .map_err(|e| WalletError::Internal(format!("aptos rpc url resolution failed: {e}")))?;
+    let broadcast_url = format!("{}{}", base.trim_end_matches('/'), "/transactions");
     Ok(TransferResponse {
         network: NETWORK_NAME.to_string(),
-        accepted: true,
-        tx_id: tx_hash.clone(),
-        message: tx_hash
-            .map(|h| format!("Aptos submit accepted: {h}"))
-            .unwrap_or_else(|| "Aptos submit accepted".to_string()),
+        accepted: false,
+        tx_id: None,
+        signed_tx: Some(signed_submit_json.clone()),
+        signed_tx_encoding: Some("json".to_string()),
+        broadcast_request: Some(BroadcastHttpRequest {
+            url: broadcast_url,
+            method: "POST".to_string(),
+            headers: vec![
+                ("content-type".to_string(), "application/json".to_string()),
+                ("accept".to_string(), "application/json".to_string()),
+            ],
+            body: Some(signed_submit_json),
+        }),
+        message: "signed Aptos transaction prepared; frontend should POST to /transactions"
+            .to_string(),
     })
 }
 

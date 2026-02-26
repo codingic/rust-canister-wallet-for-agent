@@ -132,6 +132,9 @@ pub async fn transfer_icp(req: TransferRequest) -> WalletResult<TransferResponse
         network: NETWORK_NAME.to_string(),
         accepted: true,
         tx_id: Some(block_index.to_string()),
+        signed_tx: None,
+        signed_tx_encoding: None,
+        broadcast_request: None,
         message: "icrc1_transfer on ICP ledger accepted".to_string(),
     })
 }
@@ -164,6 +167,9 @@ pub async fn transfer_icrc(req: TransferRequest) -> WalletResult<TransferRespons
         network: NETWORK_NAME.to_string(),
         accepted: true,
         tx_id: Some(block_index.to_string()),
+        signed_tx: None,
+        signed_tx_encoding: None,
+        broadcast_request: None,
         message: "icrc1_transfer on token ledger accepted".to_string(),
     })
 }
